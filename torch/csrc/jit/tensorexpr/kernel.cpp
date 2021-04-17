@@ -126,6 +126,15 @@ c10::optional<std::vector<int64_t>> tensorSizes(torch::jit::Value* v) {
   return it->sizes().concrete_sizes();
 }
 
+bool isFloatTensor(const torch::jit::Value* v) {
+  auto const& tt = v->type()->cast<TensorType>();
+  if (!tt) {
+    return false;
+  }
+  auto const& st = tt->scalarType();
+  return st && *st == c10::ScalarType::Float;
+}
+
 // The fuser only supports conv2d with very specific properties:
 // - Static shapes: 4-d input and filter, 1-d bias.
 // - Constant strides/padding/dilation/groups
@@ -144,6 +153,13 @@ bool conv2dIsSupported(const torch::jit::Node* node) {
   // Everything should be statically known.
   if (!input || !weight || !bias || !stride || !pad || !dilation || !groups) {
     GRAPH_DEBUG("some params aren't static");
+    return false;
+  }
+
+  // Inputs should be float32.  Other dtypes need more testing.
+  if (!isFloatTensor(node->input(0)) || !isFloatTensor(node->input(1)) ||
+      !isFloatTensor(node->input(2))) {
+    GRAPH_DEBUG("only float32 allowed");
     return false;
   }
 
@@ -181,6 +197,26 @@ bool conv2dIsSupported(const torch::jit::Node* node) {
   }
   if (dilation->size() != 2 || (*dilation)[0] != 1 || (*dilation)[1] != 1) {
     GRAPH_DEBUG("unsupported dilation");
+    return false;
+  }
+
+  return true;
+}
+
+// The fuser currently only supports matmul of 2D x 2D matrices
+bool matmulIsSupported(const torch::jit::Node* node) {
+  auto const& input0 = tensorSizes(node->input(0));
+  auto const& input1 = tensorSizes(node->input(1));
+
+  // Everything should be statically known.
+  if (!input0 || !input1) {
+    GRAPH_DEBUG("matmulIsSupported: Input shapes aren't static");
+    return false;
+  }
+
+  // Proper ndim for tensor inputs.
+  if (input0->size() != 2 || input1->size() != 2) {
+    GRAPH_DEBUG("matmulIsSupported: Unsupported input sizes");
     return false;
   }
 
@@ -1683,6 +1719,10 @@ Tensor* TensorExprKernel::computeValue(const torch::jit::Value* v) {
       return computeConv2d(v);
     }
 
+    case aten::matmul: {
+      return computeMatmul(v);
+    }
+
     default: {
       throw std::runtime_error("Unhandled node kind");
     }
@@ -2046,6 +2086,49 @@ Tensor* TensorExprKernel::computeConv2d(const torch::jit::Value* v) {
       {inp, w, b},
       {sH, sW, pH, pW, dH, dW, groups});
   return new Tensor(ResultBuf.node(), s);
+}
+
+Tensor* TensorExprKernel::computeMatmul(const torch::jit::Value* v) {
+  const Node* n = v->node();
+  auto const& shape = sizesForValue(v);
+  Dtype dtype = kFloat;
+  auto maybe_stype = findDtypeForValue(v);
+  if (maybe_stype) {
+    dtype = Dtype(*maybe_stype);
+  }
+  BufHandle ResultBuf("matmul", shape, dtype);
+  const Buf* a = tensors_.at(n->input(0))->buf();
+  const Buf* b = tensors_.at(n->input(1))->buf();
+
+  auto size_a = ExprVectorToExprHandleVector(a->dims());
+  auto size_b = ExprVectorToExprHandleVector(b->dims());
+  const IntImm* total_size = dynamic_cast<const IntImm*>(
+      IRSimplifier::simplify((size_a[0] * size_a[1] * size_b[1])).node());
+
+  // For small sizes, where N*M*K < 1000, lower matmul to a naive 3-level
+  // loopnest. The number is not tuned very carefully, and in future we should
+  // fine-tune it as well as we should add more advanced native TE lowerings for
+  // matmuls. For bigger sizes we generate a TE ExternalCall, which would call
+  // an aten::matmul.
+  // Native, even naive, lowering is beneficial when the sizes are small because
+  // it allows to eliminate dispatch overhead.
+  if (total_size && total_size->value() < 1000) {
+    return Reduce(
+        "nnc_matmul",
+        {{size_a[0], "M"}, {size_b[1], "N"}},
+        Sum(),
+        [&](const ExprHandle& m, const ExprHandle& n, const ExprHandle& k) {
+          BufHandle ah(a);
+          BufHandle bh(b);
+          return Load::make(ah, {m, k}) * Load::make(bh, {k, n});
+        },
+        {{size_a[1], "K"}});
+  } else {
+    return new Tensor(
+        ResultBuf.node(),
+        ExternalCall::make(
+            ResultBuf, "nnc_aten_matmul", {BufHandle(a), BufHandle(b)}, {}));
+  }
 }
 
 Tensor* TensorExprKernel::computeSoftmax(
