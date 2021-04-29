@@ -721,24 +721,17 @@ Tensor diag_embed(const Tensor& self, int64_t offset, int64_t dim1_, int64_t dim
   return result;
 }
 
-Tensor expand(const Tensor& self, IntArrayRef size, bool implicit) {
-  // [expand implicit]
-  // The implicit flag is set to true for any expand calls inserted by broadcast
-  // operators in ExpandUtils.h This flag is recorded by the tracer to
-  // distinguish between expands inserted by broadcasts and those explicitly
-  // requested by the user, because it is legal to remove implicit expands
-  // from the graph, but not legal to remove the explicit ones.
+Tensor expand(const Tensor& self, IntArrayRef size, bool /*unused*/) {
   TORCH_CHECK(size.size() >= (size_t)self.dim(),
            "expand(", self.toString(), "{", self.sizes(), "}, size=", size,
            "): the number of sizes provided (", size.size(), ") ",
            "must be greater or equal to the number of dimensions in the tensor (",
            self.dim(), ")");
 
-  std::vector<int64_t> expandedSizes;
-  std::vector<int64_t> expandedStrides;
-  std::tie(expandedSizes, expandedStrides) = inferExpandGeometry(self.sizes(), self.strides(), size);
+  auto expandedSizesAndStrides = inferExpandGeometry_dimvector(self.sizes(), self.strides(), size);
 
-  auto result = self.as_strided(expandedSizes, expandedStrides);
+  auto result = self.as_strided(
+      std::get<0>(expandedSizesAndStrides), std::get<1>(expandedSizesAndStrides));
   namedinference::propagate_names_for_expand(result, self);
   return result;
 }
@@ -758,7 +751,7 @@ Tensor sum_to_size(const Tensor& self, IntArrayRef size) {
 // TODO: Make this an aten function and replace as_strided_qtensorimpl once that is done.
 Tensor make_qtensor(const Tensor& self, IntArrayRef size, IntArrayRef stride, QuantizerPtr quantizer) {
   auto result = detail::make_tensor<QTensorImpl>(
-      Storage(self.storage()), self.key_set(), self.dtype(), quantizer);
+      c10::TensorImpl::VIEW, Storage(self.storage()), self.key_set(), self.dtype(), quantizer);
   setStrided(result, size, stride, self.storage_offset());
   return result;
 }
@@ -766,7 +759,7 @@ Tensor make_qtensor(const Tensor& self, IntArrayRef size, IntArrayRef stride, Qu
 Tensor as_strided_tensorimpl(const Tensor& self, IntArrayRef size, IntArrayRef stride, optional<int64_t> storage_offset_) {
   auto storage_offset = storage_offset_.value_or(self.storage_offset());
   auto result = detail::make_tensor<TensorImpl>(
-      Storage(self.storage()), self.key_set(), self.dtype());
+      c10::TensorImpl::VIEW, Storage(self.storage()), self.key_set(), self.dtype());
   setStrided(result, size, stride, storage_offset);
   return result;
 }
@@ -778,7 +771,7 @@ Tensor as_strided_qtensorimpl(const Tensor& self, IntArrayRef size, IntArrayRef 
       quantizer->qscheme() == QScheme::PER_TENSOR_AFFINE,
       "Setting strides is possible only on uniformly quantized tensor");
   auto result = detail::make_tensor<QTensorImpl>(
-      Storage(self.storage()), self.key_set(), self.dtype(), quantizer);
+      c10::TensorImpl::VIEW, Storage(self.storage()), self.key_set(), self.dtype(), quantizer);
   setStrided(result, size, stride, storage_offset);
   return result;
 }
@@ -955,9 +948,9 @@ Tensor repeat(const Tensor& self, IntArrayRef repeats) {
   // number of target dimensions is larger than the
   // number of source dimensions.
   int64_t num_new_dimensions = repeats.size() - self.dim();
-  std::vector<int64_t> padded_size(num_new_dimensions, 1);
+  DimVector padded_size(num_new_dimensions, 1);
   padded_size.insert(padded_size.end(), self.sizes().begin(), self.sizes().end());
-  std::vector<int64_t> target_size(repeats.size());
+  DimVector target_size(repeats.size());
   bool zero_tensor = false;
   for(const auto idx : c10::irange(repeats.size())) {
     if (repeats[idx] == 0) {
@@ -984,7 +977,8 @@ Tensor repeat(const Tensor& self, IntArrayRef repeats) {
   for (const auto i : c10::irange(xtensor.dim())) {
     // can't unfold with step 0, so make sure step is at least 1
     // (it doesn't matter what it is in that case, because the size is 0).
-    urtensor = urtensor.unfold(i, xtensor.size(i), std::max<int64_t>(xtensor.size(i), 1));
+    auto size_i = xtensor.sizes()[i];
+    urtensor = urtensor.unfold(i, size_i, std::max<int64_t>(size_i, 1));
   }
 
   urtensor.copy_(xtensor.expand_as(urtensor));
@@ -1019,20 +1013,13 @@ Tensor alias_with_sizes_and_strides(
     const Vec& strides) {
   Tensor self_;
   if (self.is_quantized()) {
-    auto impl = c10::make_intrusive<QTensorImpl>(
-        Storage(self.storage()),
-        self.key_set(),
-        self.dtype(),
-        get_qtensorimpl(self)->quantizer());
-    impl->set_storage_offset(self.storage_offset());
-    impl->set_sizes_and_strides(sizes, strides);
-    self_ = Tensor(std::move(impl));
+    self_ = detail::make_tensor<QTensorImpl>(
+      c10::TensorImpl::VIEW, Storage(self.storage()), self.key_set(), self.dtype(), get_qtensorimpl(self)->quantizer());
+    setStrided(self_, sizes, strides, self.storage_offset());
   } else {
-    auto impl = c10::make_intrusive<TensorImpl>(
-        Storage(self.storage()), self.key_set(), self.dtype());
-    impl->set_storage_offset(self.storage_offset());
-    impl->set_sizes_and_strides(sizes, strides);
-    self_ = Tensor(std::move(impl));
+    self_ = detail::make_tensor<TensorImpl>(
+      c10::TensorImpl::VIEW, Storage(self.storage()), self.key_set(), self.dtype());
+    setStrided(self_, sizes, strides, self.storage_offset());
   }
   namedinference::propagate_names(self_, self);
   return self_;
@@ -1317,9 +1304,31 @@ std::vector<Tensor> split(const Tensor& self, int64_t split_size, int64_t dim) {
 std::vector<Tensor> unsafe_split(const Tensor& self, int64_t split_size, int64_t dim) {
   auto result = at::native::split(self, split_size, dim);
   for (auto& t : result) {
-    t.unsafeGetTensorImpl()->set_version_counter(c10::VariableVersion());
+    // TODO(Ailing): do we need to set version_counter here?
+    if (!t.unsafeGetTensorImpl()->is_inference_tensor()) {
+      t.unsafeGetTensorImpl()->set_version_counter(c10::VariableVersion(/*version=*/0));
+    }
   }
   return result;
+}
+
+std::vector<Tensor> hsplit(const Tensor& self, int64_t split_size) {
+  TORCH_CHECK(self.dim() >= 1, "torch.hsplit requires a tensor with at least 1 dimension, but got a tensor with ", self.dim(), " dimensions!")
+  int64_t dim = (self.dim() == 1) ? 0 : 1;
+  TORCH_CHECK(self.sizes()[dim] % split_size == 0, "torch.hsplit attempted to split along dimension ", dim,", but the size of the dimension ", self.sizes()[dim], " is not divisible by the split_size ", split_size, "!");
+  return at::tensor_split(self, split_size, dim);
+}
+
+std::vector<Tensor> vsplit(const Tensor& self, int64_t split_size) {
+  TORCH_CHECK(self.dim() >= 2, "torch.vsplit requires a tensor with at least 2 dimension, but got a tensor with ", self.dim(), " dimensions!")
+  TORCH_CHECK(self.sizes()[0] % split_size == 0, "torch.vsplit attempted to split along dimension ", 0,", but the size of the dimension ", self.sizes()[0], " is not divisible by the split_size ", split_size, "!");
+  return at::tensor_split(self, split_size, 0);
+}
+
+std::vector<Tensor> dsplit(const Tensor& self, int64_t split_size) {
+  TORCH_CHECK(self.dim() >= 3, "torch.dsplit requires a tensor with at least 3 dimension, but got a tensor with ", self.dim(), " dimensions!")
+  TORCH_CHECK(self.sizes()[2] % split_size == 0, "torch.dsplit attempted to split along dimension ", 2,", but the size of the dimension ", self.sizes()[2], " is not divisible by the split_size ", split_size, "!");
+  return at::tensor_split(self, split_size, 2);
 }
 
 std::vector<Tensor> split_with_sizes(const Tensor& self, IntArrayRef split_sizes, int64_t dim) {
@@ -1346,9 +1355,27 @@ std::vector<Tensor> split_with_sizes(const Tensor& self, IntArrayRef split_sizes
 std::vector<Tensor> unsafe_split_with_sizes(const Tensor& self, IntArrayRef split_sizes, int64_t dim) {
   auto result = at::native::split_with_sizes(self, split_sizes, dim);
   for (auto& t : result) {
-    t.unsafeGetTensorImpl()->set_version_counter(c10::VariableVersion());
+    // TODO(Ailing): do we need to set version_counter here?
+    if (!t.unsafeGetTensorImpl()->is_inference_tensor()) {
+      t.unsafeGetTensorImpl()->set_version_counter(c10::VariableVersion(/*version=*/0));
+    }
   }
   return result;
+}
+
+std::vector<Tensor> hsplit(const Tensor& self, IntArrayRef split_sizes) {
+  TORCH_CHECK(self.dim() >= 1, "torch.hsplit requires a tensor with at least 1 dimension, but got a tensor with ", self.dim(), " dimensions!")
+  return at::tensor_split(self, split_sizes, (self.dim() == 1) ? 0 : 1);
+}
+
+std::vector<Tensor> vsplit(const Tensor& self, IntArrayRef split_sizes) {
+  TORCH_CHECK(self.dim() >= 2, "torch.vsplit requires a tensor with at least 2 dimension, but got a tensor with ", self.dim(), " dimensions!")
+  return at::tensor_split(self, split_sizes, 0);
+}
+
+std::vector<Tensor> dsplit(const Tensor& self, IntArrayRef split_sizes) {
+  TORCH_CHECK(self.dim() >= 3, "torch.dsplit requires a tensor with at least 3 dimension, but got a tensor with ", self.dim(), " dimensions!")
+  return at::tensor_split(self, split_sizes, 2);
 }
 
 // Precondition: tensors is non-empty
