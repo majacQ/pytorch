@@ -364,12 +364,20 @@ def all_node_args_have_no_tensors(node: Node, modules: Dict[str, torch.nn.Module
     elif node.op == 'call_module':
         assert isinstance(node.target, str)
         if is_activation_post_process(modules[node.target]):
+  <<<<<<< gh/jerryzh168/583/base
+            result = all_node_args_have_no_tensors(node.args[0], modules, cache)  # type: ignore
+  =======
             result = all_node_args_have_no_tensors(node.args[0], modules, cache)  # type: ignore[arg-type]
+  >>>>>>> master
     elif node.op == 'call_module':
         result = False
     elif node.op == 'get_attr':
         result = False
+  <<<<<<< gh/jerryzh168/583/base
+    elif node.target is getattr and node.args[1] == 'ndim':
+  =======
     elif node.target is getattr and node.args[1] in ['ndim', 'shape']:
+  >>>>>>> master
         # x1 = x0.ndim
         result = True
     elif node.op == 'call_method' and node.target == 'size':

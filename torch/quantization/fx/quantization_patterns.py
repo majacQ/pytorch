@@ -176,6 +176,35 @@ class BinaryOpQuantizeHandler(QuantizeHandler):
 
         qconfig = quantizer.qconfig_map[node.name]
         dtypes = get_qconfig_dtypes(qconfig)
+  <<<<<<< gh/jerryzh168/583/base
+        # leave the op unquantized if the dtype combination is not supported
+        if dtypes not in binary_op_supported_dtypes[self.binary_op]:
+            warnings.warn(
+                "dtype combination: {} is not "
+                "supported by {} "
+                "supported dtype combinations are: {}".format(dtypes, self.binary_op, binary_op_supported_dtypes[self.binary_op]))
+            if self.relu_node:
+                op_out = quantizer.quantized_graph.node_copy(self.binary_op_node, load_arg(quantized=False))
+                relu_args = [op_out]
+                relu_args.extend(load_arg(quantized=False)(self.relu_node.args[1:]))
+                relu_kwargs = load_arg(quantized=False)(self.relu_node.kwargs)
+                return quantizer.quantized_graph.create_node(
+                    "call_function", torch.nn.functional.relu, tuple(relu_args), relu_kwargs)
+            else:
+                return quantizer.quantized_graph.node_copy(node, load_arg(quantized=False))
+
+        if dtypes in [(torch.quint8, torch.qint8, None)]:
+            assert self.quantized_binary_op is not None
+            if self.num_tensor_args == 1:
+                # add/mul scalar
+                first_arg = self.binary_op_node.args[0]
+                cache_for_no_tensor_check: Dict[Node, bool] = dict()
+                if isinstance(first_arg, Node) and (not all_node_args_have_no_tensors(first_arg, quantizer.modules, cache_for_no_tensor_check)):
+                    quantized_index = 0
+                else:
+                    quantized_index = 1
+  =======
+  >>>>>>> master
 
         if is_reference and self.binary_op in binary_reference_op_supported_dtypes and \
                 dtypes in binary_reference_op_supported_dtypes[self.binary_op]:

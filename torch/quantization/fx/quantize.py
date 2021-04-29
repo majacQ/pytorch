@@ -172,9 +172,14 @@ def maybe_insert_observer_for_special_module(
             torch.quantization.quantize_fx._prepare_standalone_module_fx  # type: ignore[attr-defined]
         observed_standalone_module = \
             prepare(standalone_module, sm_qconfig_dict, sm_prepare_config_dict)
+  <<<<<<< gh/jerryzh168/583/base
+        standalone_module_input_idxs = observed_standalone_module.\
+            _standalone_module_input_quantized_idxs.int().tolist()  # type: ignore
+  =======
         standalone_module_input_idxs = \
             observed_standalone_module._standalone_module_input_quantized_idxs.int().tolist()
         preserved_attributes = set(sm_prepare_config_dict.get("preserved_attributes", []))
+  >>>>>>> master
         observed_standalone_module = ObservedStandaloneGraphModule(
             observed_standalone_module, observed_standalone_module.graph, preserved_attributes)
         parent_name, name = _parent_name(node.target)
@@ -346,6 +351,8 @@ def insert_observer_for_input_arg_of_observed_node(
                     activation_post_process_indexes,
                     env, observed_graph, load_arg, observed_node_names_set, quants)
 
+  <<<<<<< gh/jerryzh168/583/base
+  =======
 def insert_observer_for_output_of_model(
         node: Node,
         model: torch.nn.Module,
@@ -486,22 +493,41 @@ def in_nodes(a: Argument, nodes: Set[Node]) -> bool:
         return all([in_nodes(arg, nodes) for arg in a])
     return False
 
+  >>>>>>> master
 def handle_copy_nodes(
         observed_graph: Graph, matches: Dict[str, MatchResult],
         quants: Dict[str, List[Tuple[DefaultQuantizeHandler, Callable]]],
         qconfig_map: Dict[str, QConfigAny],
         activation_post_process_map: Dict[str, List[str]],
         modules: Dict[str, torch.nn.Module]):
+  <<<<<<< gh/jerryzh168/583/base
+    # map from node name to whether it is observed or not
+    observed_nodes: Set[Node] = set()
+    copy_nodes: Set[Node] = set()
+    non_tensor_input_binary_op_nodes: Set[Node] = set()
+    app_to_remove: Set[Node] = set()
+  =======
     observed_nodes: Set[Node] = set()
     copy_nodes: Set[Node] = set()
     non_tensor_input_binary_op_nodes: Set[Node] = set()
     unmatched_nodes: Set[Node] = set()
     actpp_to_remove: Set[Node] = set()
+  >>>>>>> master
     env: Dict[Any, Any] = {}
 
     def load_arg(a: Argument) -> Argument:
         return map_arg(a, lambda node: env[node.name])
 
+  <<<<<<< gh/jerryzh168/583/base
+    def in_nodes(a: Argument, nodes: Set[Node]) -> bool:
+        if isinstance(a, Node):
+            return a in nodes
+        elif isinstance(a, list) or isinstance(a, tuple):
+            return all([in_nodes(arg, nodes) for arg in a])
+        return False
+
+  =======
+  >>>>>>> master
     result_graph = Graph()
     cache_for_no_tensor_check: Dict[Node, bool] = dict()
     for node in observed_graph.nodes:
@@ -514,11 +540,19 @@ def handle_copy_nodes(
             if in_nodes(node.args[0], copy_nodes) and in_nodes(node.args[0], observed_nodes):
                 # we'll remove the activation_post_process if the previous node is
                 # an observed copy node
+  <<<<<<< gh/jerryzh168/583/base
+                app_to_remove.add(node)
+
+            # rule 2: if the previous node is a binary op without tensor input, we can remove the observer
+            if in_nodes(node.args[0], non_tensor_input_binary_op_nodes):
+                app_to_remove.add(node)
+  =======
                 actpp_to_remove.add(node)
 
             # rule 2: if the previous node is a binary op without tensor input, we can remove the observer
             if in_nodes(node.args[0], non_tensor_input_binary_op_nodes):
                 actpp_to_remove.add(node)
+  >>>>>>> master
             observed_nodes.add(node)
 
         if root_node is node and qconfig is not None:
@@ -526,6 +560,11 @@ def handle_copy_nodes(
                 copy_nodes.add(node)
                 # if previous node is observed, the copy node will be observed as well
                 if in_nodes(node.args[0], observed_nodes):
+  <<<<<<< gh/jerryzh168/583/base
+                    observed_nodes.add(node)
+        if all_node_args_have_no_tensors(node, modules, cache_for_no_tensor_check):
+            non_tensor_input_binary_op_nodes.add(node)
+  =======
                     prev_node = node.args[0]
                     if (
                         isinstance(prev_node, Node) and
@@ -553,6 +592,7 @@ def handle_copy_nodes(
             non_tensor_input_binary_op_nodes.add(node)
         if root_node is None and node.op != 'placeholder':
             unmatched_nodes.add(node)
+  >>>>>>> master
 
         # rule 3: for special node, we'll just remove observer for its input
         special_nodes = [
@@ -562,7 +602,11 @@ def handle_copy_nodes(
             if in_nodes(node.args[0], observed_nodes):
                 prev_node = node.args[0].args[0]
                 if prev_node.name not in qconfig_map or qconfig_map[prev_node.name] is None:
+  <<<<<<< gh/jerryzh168/583/base
+                    app_to_remove.add(node.args[0])
+  =======
                     actpp_to_remove.add(node.args[0])
+  >>>>>>> master
                     # if the previous node is not quantized, remove node from copy nodes
                     if node in copy_nodes:
                         copy_nodes.remove(node)
@@ -570,13 +614,19 @@ def handle_copy_nodes(
     for node in observed_graph.nodes:
         if node.op == "output":
             result_graph.output(map_arg(node.args[0], load_arg))
+  <<<<<<< gh/jerryzh168/583/base
+        elif node in app_to_remove:
+  =======
         elif node in actpp_to_remove:
+  >>>>>>> master
             env[node.name] = env[node.args[0].name]
         else:
             env[node.name] = result_graph.node_copy(node, load_arg)
 
     return result_graph
 
+  <<<<<<< gh/jerryzh168/583/base
+  =======
 def handle_cat_nodes(
         model: torch.nn.Module, observed_graph: Graph, matches: Dict[str, MatchResult],
         quants: Dict[str, List[Tuple[DefaultQuantizeHandler, Callable]]],
@@ -627,6 +677,7 @@ def handle_cat_nodes(
 
     return observed_graph
 
+  >>>>>>> master
 # A dictionary for querying the weight index for a given op
 WEIGHT_INDEX_DICT = {
     torch.nn.functional.conv1d : [1],
@@ -830,9 +881,23 @@ class Quantizer:
         standalone_module_classes = [config[0] for config in standalone_module_class_configs]
         custom_module_classes = get_custom_module_class_keys(
             prepare_custom_config_dict, "float_to_observed_custom_module_class")
+  <<<<<<< gh/jerryzh168/583/base
+        assert self.patterns is not None
+        matches = self._find_matches(
+            model.graph, self.modules, self.patterns, standalone_module_names,
+            standalone_module_classes, custom_module_classes)
+
+        # find _inputs_ to matched nodes that are not quantized, these
+        # have to be quantized, which requires measuring stats,
+        # initialize an DefaultQuantizeHandler object for each
+        quants: Dict[str, List[Tuple[DefaultQuantizeHandler, Callable]]] = \
+            self._find_quants(model.graph, self.modules, matches)
+
+  =======
         matches, quants = self._match(
             model, model.graph, standalone_module_names, standalone_module_classes,
             custom_module_classes)
+  >>>>>>> master
         self.activation_post_process_map = defaultdict(list)
         observed_graph = Graph()
         observed_node_names_set: Set[str] = set()
@@ -856,12 +921,25 @@ class Quantizer:
             self.activation_post_process_map, self.modules)
 
         self.modules = dict(model.named_modules())
+  <<<<<<< gh/jerryzh168/583/base
+
+        # TODO: refactor this to a separate function
+        matches = self._find_matches(
+            observed_graph, self.modules, self.patterns, standalone_module_names,
+            standalone_module_classes, custom_module_classes)
+        quants = self._find_quants(observed_graph, self.modules, matches)
+
+        observed_graph = handle_copy_nodes(
+            observed_graph, matches, quants, self.qconfig_map,
+            self.activation_post_process_map, self.modules)
+  =======
         matches, quants = self._match(
             model, observed_graph, standalone_module_names, standalone_module_classes,
             custom_module_classes)
         observed_graph = handle_cat_nodes(
             model, observed_graph, matches, quants, self.activation_post_process_map,
             self.modules)
+  >>>>>>> master
 
         self.save_state(model)
         preserved_attributes = set(prepare_custom_config_dict.get("preserved_attributes", []))
