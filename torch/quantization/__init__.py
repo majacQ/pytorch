@@ -1,15 +1,20 @@
-from .quantize import *
-from .observer import *
-from .qconfig import *
-from .fake_quantize import *
+from .quantize import *  # noqa: F403
+from .observer import *  # noqa: F403
+from .qconfig import *  # noqa: F403
+from .fake_quantize import *  # noqa: F403
 from .fuse_modules import fuse_modules
-from .stubs import *
-from .quant_type import *
-from .quantize_jit import *
+from .stubs import *  # noqa: F403
+from .quant_type import *  # noqa: F403
+from .quantize_jit import *  # noqa: F403
 # from .quantize_fx import *
+  <<<<<<< gh/jerryzh168/583/base
 from .quantization_mappings import *
 from .fuser_method_mappings import *
 from ._numeric_suite import Logger
+  =======
+from .quantization_mappings import *  # noqa: F403
+from .fuser_method_mappings import *  # noqa: F403
+  >>>>>>> master
 
 def default_eval_fn(model, calib_data):
     r"""
