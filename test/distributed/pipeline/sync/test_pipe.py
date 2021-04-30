@@ -17,13 +17,18 @@ from torch.distributed.pipeline.sync import Pipe
 skip_if_no_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="cuda required")
 
 
-def test_parameters():
+def test_pipe_without_rpc():
+    model = nn.Sequential(nn.Linear(1, 1))
+    with pytest.raises(RuntimeError, match='Please initialize RPC framework'):
+        pipe = Pipe(model, chunks=1)
+
+def test_parameters(setup_rpc):
     model = nn.Sequential(nn.Linear(1, 1))
     pipe = Pipe(model, chunks=1)
     assert list(pipe.parameters()) != []
 
 
-def test_public_attrs():
+def test_public_attrs(setup_rpc):
     class MyString:
         def __init__(self, value):
             self.value = value
@@ -41,7 +46,7 @@ def test_public_attrs():
     assert isinstance(pipe.checkpoint, str)
 
 
-def test_sequential_like():
+def test_sequential_like(setup_rpc):
     a = nn.Linear(1, 1)
     b = nn.Linear(1, 1)
 
@@ -59,7 +64,7 @@ def test_sequential_like():
     assert model[-1] is b
     assert model[-2] is a
 
-def test_chunks_less_than_1():
+def test_chunks_less_than_1(setup_rpc):
     model = nn.Sequential(nn.Linear(1, 1))
 
     with pytest.raises(ValueError):
@@ -124,14 +129,14 @@ def test_checkpoint_mode(setup_rpc):
     assert count_grad_fn(never_output.local_value().grad_fn, "CheckpointBackward") == 0
 
 
-def test_checkpoint_mode_invalid():
+def test_checkpoint_mode_invalid(setup_rpc):
     model = nn.Sequential(nn.Linear(1, 1))
 
     with pytest.raises(ValueError, match="checkpoint is not one of 'always', 'except_last', or 'never'"):
         Pipe(model, chunks=2, checkpoint="INVALID_CHECKPOINT")
 
 
-def test_checkpoint_mode_when_chunks_1():
+def test_checkpoint_mode_when_chunks_1(setup_rpc):
     model = nn.Sequential(nn.Linear(1, 1))
 
     # All checkpoint modes are fine.
@@ -172,8 +177,8 @@ def test_checkpoint_non_float_input(setup_rpc):
             return (input * 2, torch.tensor([False]))
 
     class JoinNonFloat(nn.Module):
-        def forward(self, input):
-            return input[0] * 2
+        def forward(self, input, non_float):
+            return input * 2
 
     model = nn.Sequential(ForkNonFloat(), JoinNonFloat())
     model = Pipe(model, chunks=1, checkpoint="always")
@@ -441,7 +446,7 @@ def test_deferred_batch_norm_params(checkpoint, setup_rpc):
     assert torch.allclose(pipe[0].bias.grad, bn.bias.grad, atol=1e-4)
 
 
-def test_devices():
+def test_devices(setup_rpc):
     a = nn.Linear(1, 1)
     b = nn.Linear(1, 1)
     c = nn.Linear(1, 1)
@@ -455,21 +460,21 @@ def test_devices():
     assert model.devices == [cpu, cpu, cpu]
 
 
-def test_partitions():
+def test_partitions(setup_rpc):
     a = nn.Linear(1, 1)
     b = nn.Linear(1, 1)
 
     model = nn.Sequential(a, b)
     model = Pipe(model)
 
-    assert isinstance(model.partitions, nn.ModuleList)
-    assert isinstance(model.partitions[0], nn.Sequential)
-    assert isinstance(model.partitions[1], nn.Sequential)
+    assert isinstance(model.partitions, nn.Sequential)
+    assert isinstance(model.partitions[0], nn.Linear)
+    assert isinstance(model.partitions[1], nn.Linear)
 
-    assert "partitions.0.0.weight" in model.state_dict()
+    assert "partitions.0.weight" in model.state_dict()
 
 
-def test_deny_moving():
+def test_deny_moving(setup_rpc):
     a = nn.Linear(1, 1)
     b = nn.Linear(1, 1)
 
@@ -520,7 +525,7 @@ def test_empty_module(setup_rpc):
         model(42)
 
 
-def test_named_children():
+def test_named_children(setup_rpc):
     a = nn.Linear(1, 1)
     b = nn.Linear(1, 1)
 
@@ -528,8 +533,8 @@ def test_named_children():
     model = Pipe(model)
 
     names = set(n for n, _ in model.named_modules())
-    assert "partitions.0.a" in names
-    assert "partitions.1.b" in names
+    assert "partitions.a" in names
+    assert "partitions.b" in names
 
     # Pipe doesn't support __getattr__. Unlike nn.Sequential, Pipe requires
     # several methods in its namespace.
@@ -537,12 +542,12 @@ def test_named_children():
         model.a
 
 
-def test_verify_module_non_sequential():
+def test_verify_module_non_sequential(setup_rpc):
     with pytest.raises(TypeError, match="module must be nn.Sequential to be partitioned"):
         Pipe(nn.Module())
 
 
-def test_verify_module_duplicate_children():
+def test_verify_module_duplicate_children(setup_rpc):
     conv = nn.Conv2d(3, 3, 1)
     model = nn.Sequential(conv, conv)
 
@@ -551,7 +556,7 @@ def test_verify_module_duplicate_children():
 
 
 @skip_if_no_cuda
-def test_verify_module_params_on_same_device():
+def test_verify_module_params_on_same_device(setup_rpc):
     class Surrogate(nn.Module):
         def __init__(self, param1, param2):
             super().__init__()
@@ -587,7 +592,7 @@ def test_verify_nested_modules(setup_rpc):
     assert out.local_value().device == torch.device("cuda:1")
     assert out.local_value().size() == torch.Size([10, 2])
 
-def test_verify_module_duplicate_parameters_on_same_device():
+def test_verify_module_duplicate_parameters_on_same_device(setup_rpc):
     class Surrogate(nn.Module):
         def __init__(self, module):
             super().__init__()
@@ -627,3 +632,14 @@ def test_forward_lockstep(setup_rpc):
     # Partition #1:    000! 111! 222!
     #
     assert timeline == [(0, 0), (1, 0), (0, 1), (2, 0), (1, 1), (2, 1)]
+
+@pytest.mark.parametrize("checkpoint", ["never", "always", "except_last"])
+def test_multiple_inputs(checkpoint, setup_rpc):
+    class MyModule(nn.Module):
+        def forward(self, a, b, c):
+            return a + b + c
+
+    model = Pipe(nn.Sequential(MyModule()), chunks=2, checkpoint=checkpoint)
+    t = torch.rand(10)
+    res = model(t, t, t).local_value()
+    assert torch.equal(res, t + t + t)

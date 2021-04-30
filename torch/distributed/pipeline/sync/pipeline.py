@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2019 Kakao Brain
 #
 # Copyright (c) Facebook, Inc. and its affiliates. All rights reserved.
@@ -20,7 +21,7 @@ from .microbatch import Batch
 from .skip.layout import SkipLayout
 from .skip.tracker import SkipTrackerThroughPotals, use_skip_tracker
 from .stream import AbstractStream, current_stream, use_device
-from .worker import Task, create_workers, join_workers
+from .worker import Task, create_workers
 
 __all__: List[str] = []
 
@@ -81,7 +82,7 @@ class Pipeline:
 
     def __init__(
         self,
-        partitions: List[nn.Sequential],
+        partitions: nn.Sequential,
         devices: List[torch.device],
         copy_streams: List[List[AbstractStream]],
         skip_layout: SkipLayout,
@@ -93,9 +94,6 @@ class Pipeline:
         self.skip_layout = skip_layout
         self.checkpoint_stop = checkpoint_stop
         (self.in_queues, self.out_queues) = create_workers(devices)
-
-    def __del__(self) -> None:
-        join_workers(self.in_queues, self.out_queues)
 
     def run(self, batches: List[Batch]) -> None:
         """Runs pipeline parallelism.
@@ -196,14 +194,18 @@ class Pipeline:
             if checkpoint:
 
                 def function(
-                    input: TensorOrTensors,
-                    partition: nn.Sequential = partition,
+                    *inputs: TensorOrTensors,
+                    partition: nn.Module = partition,
                     skip_tracker: SkipTrackerThroughPotals = skip_trackers[i],
                     chunk_id: int = i,
                     part_id: int = j,
                 ) -> TensorOrTensors:
                     with use_skip_tracker(skip_tracker), record_function("chunk%d-part%d" % (chunk_id, part_id)):
-                        return partition(input)
+                        if batch.is_single_sequence:
+                            # Don't unwrap inputs for single sequence backward compatibility.
+                            return partition(inputs)
+                        else:
+                            return partition(*inputs)
 
                 chk = Checkpointing(function, batch)
                 task = Task(streams[j], compute=chk.checkpoint, finalize=chk.recompute)
@@ -213,7 +215,7 @@ class Pipeline:
 
                 def compute(
                     batch: Batch = batch,
-                    partition: nn.Sequential = partition,
+                    partition: nn.Module = partition,
                     skip_tracker: SkipTrackerThroughPotals = skip_trackers[i],
                     chunk_id: int = i,
                     part_id: int = j,
