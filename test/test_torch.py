@@ -3864,9 +3864,16 @@ class AbstractTestCases:
                 str(obj)
 
             # test complex tensor
+            # complex tensor print uses two formatters, one for real values
+            # and the other for imag values. this is consistent with numpy
             x = torch.tensor([2.3 + 4j, 7 + 6j])
             self.assertEqual(x.__repr__(), str(x))
-            self.assertExpectedInline(str(x), '''tensor([(2.3000+4.0000j), (7.0000+6.0000j)])''')
+            self.assertExpectedInline(str(x), '''tensor([2.3000+4.j, 7.0000+6.j])''')
+
+            # test scientific notation for complex tensors
+            x = torch.tensor([1e28 + 2j , -1e-28j])
+            self.assertEqual(x.__repr__(), str(x))
+            self.assertExpectedInline(str(x), '''tensor([1.0000e+28+2.0000e+00j, -0.0000e+00-1.0000e-28j])''')
 
             # test big integer
             x = torch.tensor(2341234123412341)
@@ -3902,6 +3909,13 @@ class AbstractTestCases:
             x = torch.tensor([4, inf, 1.5, -inf, 0, nan, 1])
             self.assertEqual(x.__repr__(), str(x))
             self.assertExpectedInline(str(x), '''tensor([4.0000,    inf, 1.5000,   -inf, 0.0000,    nan, 1.0000])''')
+
+            y = torch.tensor([4, inf, complex(1.5, inf), complex(-inf, 4), 0, complex(nan, inf), complex(3, nan)])
+            self.assertEqual(y.__repr__(), str(y))
+            expected_str = '''\
+tensor([4.0000+0.j,    inf+0.j, 1.5000+infj,   -inf+4.j, 0.0000+0.j,    nan+infj,
+        3.0000+nanj])'''
+            self.assertExpectedInline(str(y), expected_str)
 
             # test dtype
             torch.set_default_dtype(torch.float)
@@ -3990,6 +4004,32 @@ tensor([[[1., 1., 1.,  ..., 1., 1., 1.],
 
             self.assertExpectedInline(str(y), expected_str)
 
+            x = torch.ones(100, 2, 2, 10) * (1 + 1j)
+            y = x.as_strided(size=(100, 2, 10), stride=(2 * 2 * 10, 2 * 10, 1))
+            self.assertEqual(str(y), y.__repr__())
+            expected_str = '''\
+tensor([[[1.+1.j, 1.+1.j, 1.+1.j,  ..., 1.+1.j, 1.+1.j, 1.+1.j],
+         [1.+1.j, 1.+1.j, 1.+1.j,  ..., 1.+1.j, 1.+1.j, 1.+1.j]],
+
+        [[1.+1.j, 1.+1.j, 1.+1.j,  ..., 1.+1.j, 1.+1.j, 1.+1.j],
+         [1.+1.j, 1.+1.j, 1.+1.j,  ..., 1.+1.j, 1.+1.j, 1.+1.j]],
+
+        [[1.+1.j, 1.+1.j, 1.+1.j,  ..., 1.+1.j, 1.+1.j, 1.+1.j],
+         [1.+1.j, 1.+1.j, 1.+1.j,  ..., 1.+1.j, 1.+1.j, 1.+1.j]],
+
+        ...,
+
+        [[1.+1.j, 1.+1.j, 1.+1.j,  ..., 1.+1.j, 1.+1.j, 1.+1.j],
+         [1.+1.j, 1.+1.j, 1.+1.j,  ..., 1.+1.j, 1.+1.j, 1.+1.j]],
+
+        [[1.+1.j, 1.+1.j, 1.+1.j,  ..., 1.+1.j, 1.+1.j, 1.+1.j],
+         [1.+1.j, 1.+1.j, 1.+1.j,  ..., 1.+1.j, 1.+1.j, 1.+1.j]],
+
+        [[1.+1.j, 1.+1.j, 1.+1.j,  ..., 1.+1.j, 1.+1.j, 1.+1.j],
+         [1.+1.j, 1.+1.j, 1.+1.j,  ..., 1.+1.j, 1.+1.j, 1.+1.j]]])\
+'''
+            self.assertExpectedInline(str(y), expected_str)
+
             # test print 0-dim tensor: there's no 0-dim in Numpy, we match arrayprint style
             x = torch.tensor(0.00002)
             self.assertEqual(x.__repr__(), str(x))
@@ -4008,6 +4048,11 @@ tensor([[[1., 1., 1.,  ..., 1., 1., 1.],
             x = torch.tensor([0.00002])
             self.assertEqual(x.__repr__(), str(x))
             self.assertExpectedInline(str(x), '''tensor([2.0000e-05])''')
+
+            # [Numpy] test print complex in sci_mode when real_min < 0.0001 and (or) imag_min < 0.0001.
+            x = torch.tensor([0.00002]) * (1 + 1j)
+            self.assertEqual(x.__repr__(), str(x))
+            self.assertExpectedInline(str(x), '''tensor([2.0000e-05+2.0000e-05j])''')
 
             # [Numpy] test print float in sci_mode when max > 1e8.
             # TODO: Pytorch uses fixed precision to print, while Numpy uses dragon4_scientific
@@ -13089,9 +13134,9 @@ class TestTorchDeviceType(TestCase):
             ('mode', torch.mode, None),
             ('median', torch.median, None),
 
-            ('prod', torch.prod, 1),
-            ('sum', torch.sum, 0),
-            ('norm', torch.norm, 0),
+            ('prod', torch.prod, 1.),
+            ('sum', torch.sum, 0.),
+            ('norm', torch.norm, 0.),
             ('mean', torch.mean, nan),
             ('var', torch.var, nan),
             ('std', torch.std, nan),
@@ -17303,25 +17348,26 @@ scipy_lobpcg  | {:10.2e}  | {:10.2e}  | {:6} | N/A
             self.assertRaises(RuntimeError,
                               lambda: torch.min(a, 0, out=(values, indices)))
 
-    def test_full_deprecation_warning(self, device):
+    # NOTE: inferring the dtype from bool or integer fill values is
+    #   disabled because the behavior is changing from PyTorch 1.5,
+    #   where the default scalar type would be inferred, to PyTorch 1.7,
+    #   where bool or long, respectively, will be inferred.
+    def test_full_unsupported_integer_inference(self, device):
         size = (2, 2)
         # Tests bool and integer fill_values deprecated without specific dtype set
-        with self.maybeWarnsRegex(UserWarning, 'Deprecation warning: .+'):
+        with self.assertRaisesRegex(RuntimeError, '.+is currently unsupported.+'):
             self.assertEqual(torch.full(size, True).dtype, torch.float)
-        with self.maybeWarnsRegex(UserWarning, 'Deprecation warning: .+'):
+        with self.assertRaisesRegex(RuntimeError, '.+is currently unsupported.+'):
             self.assertEqual(torch.full(size, 1).dtype, torch.float)
 
         # Explicitly setting the dtype doesn't warn
-        with self.maybeWarnsRegex(UserWarning, ''):
-            self.assertEqual(torch.full(size, 1, dtype=torch.long).dtype, torch.long)
-        with self.maybeWarnsRegex(UserWarning, ''):
-            self.assertEqual(torch.full(size, True, dtype=torch.bool).dtype,
-                             torch.bool)
+        self.assertEqual(torch.full(size, 1, dtype=torch.long).dtype, torch.long)
+        self.assertEqual(torch.full(size, True, dtype=torch.bool).dtype, torch.bool)
 
         # Performs same tests with named tensor
-        with self.maybeWarnsRegex(UserWarning, 'Deprecation warning: .+|Named tensors .+'):
+        with self.assertRaisesRegex(RuntimeError, '.+is currently unsupported.+'):
             self.assertEqual(torch.full(size, True, names=('a', 'b')).dtype, torch.float)
-        with self.maybeWarnsRegex(UserWarning, 'Deprecation warning: .+|Named tensors .+'):
+        with self.assertRaisesRegex(RuntimeError, '.+is currently unsupported.+'):
             self.assertEqual(torch.full(size, 1, names=('a', 'b')).dtype, torch.float)
 
         with self.maybeWarnsRegex(UserWarning, 'Named tensors .+'):
@@ -17339,15 +17385,17 @@ scipy_lobpcg  | {:10.2e}  | {:10.2e}  | {:6} | N/A
         prev_default = torch.get_default_dtype()
         torch.set_default_dtype(dtype)
 
-        # Tests bool fill value inference
+        # Tests bool fill value inference (currently unsupported)
         # Note: in the future this will return a tensor of torch.bool dtype
-        t = torch.full(size, True)
-        self.assertEqual(t.dtype, dtype)
+        with self.assertRaisesRegex(RuntimeError, '.+is currently unsupported.+'):
+            t = torch.full(size, True)
+            self.assertEqual(t.dtype, dtype)
 
-        # Tests integer fill value inference
+        # Tests integer fill value inference (currently unsupported)
         # Note: in the future this will return a tensor of torch.long dtype
-        t = torch.full(size, 1)
-        self.assertEqual(t.dtype, dtype)
+        with self.assertRaisesRegex(RuntimeError, '.+is currently unsupported.+'):
+            t = torch.full(size, 1)
+            self.assertEqual(t.dtype, dtype)
 
         # Tests float fill value inference
         t = torch.full(size, 1.)
@@ -17372,7 +17420,8 @@ scipy_lobpcg  | {:10.2e}  | {:10.2e}  | {:6} | N/A
                          torch.complex64)
 
     def test_full_out(self, device):
-        o = torch.empty((5,), device=device, dtype=torch.long)
+        size = (5,)
+        o = torch.empty(size, device=device, dtype=torch.long)
 
         # verifies dtype/out conflict throws a RuntimeError
         with self.assertRaises(RuntimeError):
@@ -17380,6 +17429,7 @@ scipy_lobpcg  | {:10.2e}  | {:10.2e}  | {:6} | N/A
 
         # verifies out dtype overrides inference
         self.assertEqual(torch.full(o.shape, 1., out=o).dtype, o.dtype)
+        self.assertEqual(torch.full(size, 1, out=o).dtype, o.dtype)
 
     def _float_to_int_conversion_helper(self, vals, device, dtype):
         assert TEST_NUMPY
