@@ -1,8 +1,9 @@
 #include <torch/csrc/jit/frontend/concrete_module_type.h>
+
+#include <c10/util/irange.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
 
-namespace torch {
-namespace jit {
+namespace torch::jit {
 
 ClassTypePtr ConcreteModuleTypeBuilder::createTypeFromThis() const {
   auto cu = get_python_cu();
@@ -56,7 +57,7 @@ std::shared_ptr<ConcreteModuleType> ConcreteModuleType::fromJitType(
     // Populate the builder metadata from the JIT type. This is to ensure
     // ConcreteModuleTypes produced from Python and ones produced from a JIT
     // type directly behave the same to the rest of the system.
-    for (size_t i = 0; i < classType->numAttributes(); i++) {
+    for (const auto i : c10::irange(classType->numAttributes())) {
       const auto& attrName = classType->getAttributeName(i);
       const auto& attrType = classType->getAttribute(i);
       if (attrType->is_module()) {
@@ -70,7 +71,7 @@ std::shared_ptr<ConcreteModuleType> ConcreteModuleType::fromJitType(
       }
     }
 
-    for (size_t i = 0; i < classType->numConstants(); i++) {
+    for (const auto i : c10::irange(classType->numConstants())) {
       builder.addConstant(
           classType->getConstantName(i), classType->getConstant(i));
     }
@@ -272,8 +273,7 @@ void ConcreteModuleTypeBuilder::addBuiltinFunction(
 void ConcreteModuleTypeBuilder::addModule(
     std::string name,
     std::shared_ptr<ConcreteModuleType> meta) {
-  modules_.emplace_back(
-      ConcreteModuleTypeBuilder::ModuleInfo{std::move(name), std::move(meta)});
+  modules_.emplace_back(std::move(name), std::move(meta));
 }
 
 void ConcreteModuleTypeBuilder::addForwardHook(py::object hook) {
@@ -366,11 +366,11 @@ std::vector<std::pair<std::string, std::shared_ptr<ConcreteModuleType>>>
 ConcreteModuleType::getModulesPy() const {
   std::vector<std::pair<std::string, std::shared_ptr<ConcreteModuleType>>> ret;
 
+  ret.reserve(data_.modules_.size());
   for (const auto& info : data_.modules_) {
-    ret.emplace_back(std::make_pair(info.name_, info.meta_));
+    ret.emplace_back(info.name_, info.meta_);
   }
   return ret;
 }
 
-} // namespace jit
-} // namespace torch
+} // namespace torch::jit

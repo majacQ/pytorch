@@ -32,12 +32,24 @@ CPU and CUDA)::
     import torch
     torch.manual_seed(0)
 
+Some PyTorch operations may use random numbers internally.
+:meth:`torch.svd_lowrank()` does this, for instance. Consequently, calling it
+multiple times back-to-back with the same input arguments may give different
+results. However, as long as :meth:`torch.manual_seed()` is set to a constant
+at the beginning of an application and all other sources of nondeterminism have
+been eliminated, the same series of random numbers will be generated each time
+the application is run in the same environment.
+
+It is also possible to obtain identical results from an operation that uses
+random numbers by setting :meth:`torch.manual_seed()` to the same value between
+subsequent calls.
+
 Python
 ------
 
 For custom operators, you might need to set python seed as well::
 
-    inport random
+    import random
     random.seed(0)
 
 Random number generators in other libraries
@@ -88,7 +100,7 @@ Please check the documentation for :meth:`torch.use_deterministic_algorithms()`
 for a full list of affected operations. If an operation does not act correctly
 according to the documentation, or if you need a deterministic implementation
 of an operation that does not have one, please submit an issue:
-`<https://github.com/pytorch/pytorch/issues?q=label:%22topic:%20determinism%22>`_
+`<https://github.com/pytorch/pytorch/issues?q=label:%22module:%20determinism%22>`_
 
 For example, running the nondeterministic CUDA implementation of :meth:`torch.Tensor.index_add_`
 will throw an error::
@@ -111,7 +123,7 @@ deterministic implementation will be used::
     tensor([[[ 1.1900, -2.3409],
              [ 0.4796,  0.8003]],
             [[ 0.1509,  1.8027],
-             [ 0.0333, -1.1444]]], device='cuda:0') 
+             [ 0.0333, -1.1444]]], device='cuda:0')
 
 Furthermore, if you are using CUDA tensors, and your CUDA version is 10.2 or greater, you
 should set the environment variable `CUBLAS_WORKSPACE_CONFIG` according to CUDA documentation:
@@ -136,18 +148,20 @@ DataLoader
 ..........
 
 DataLoader will reseed workers following :ref:`data-loading-randomness` algorithm.
-Use :meth:`worker_init_fn` to preserve reproducibility::
+Use :meth:`worker_init_fn` and `generator` to preserve reproducibility::
 
     def seed_worker(worker_id):
         worker_seed = torch.initial_seed() % 2**32
         numpy.random.seed(worker_seed)
         random.seed(worker_seed)
 
+    g = torch.Generator()
+    g.manual_seed(0)
+
     DataLoader(
         train_dataset,
         batch_size=batch_size,
         num_workers=num_workers,
-        worker_init_fn=seed_worker
+        worker_init_fn=seed_worker,
+        generator=g,
     )
-
-

@@ -8,12 +8,15 @@
  * - FoldFrozenConvBatchnorm
  * - FoldFrozenConvAddOrSub
  * - FoldFrozenConvMulOrDiv
+ * - FoldFrozenLinearBatchnorm
  */
 
 namespace torch {
 namespace jit {
 
-TORCH_API void OptimizeFrozenGraph(std::shared_ptr<Graph>& graph);
+TORCH_API void OptimizeFrozenGraph(
+    std::shared_ptr<Graph>& graph,
+    bool optimize_numerics = true);
 
 } // namespace jit
 } // namespace torch

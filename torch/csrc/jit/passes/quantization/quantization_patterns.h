@@ -1,5 +1,6 @@
 #pragma once
 
+#include <c10/util/irange.h>
 #include <torch/csrc/jit/ir/ir.h>
 #include <torch/csrc/jit/ir/subgraph_matcher.h>
 #include <torch/csrc/jit/jit_log.h>
@@ -37,13 +38,17 @@ std::string getAtenOpPattern(
   std::string aten_op_pattern = graph_header;
   if (scalar_args) {
     for (const auto& extra_arg : _extra_op_args) {
-      aten_op_pattern += R"(
-          )" +
-          extra_arg + "_scalar = aten::item(" + extra_arg + ")";
+      aten_op_pattern
+          .append(R"(
+          )")
+          .append(extra_arg)
+          .append("_scalar = aten::item(")
+          .append(extra_arg)
+          .append(")");
     }
 
-    for (size_t i = 0; i < _extra_op_args.size(); ++i) {
-      _extra_op_args[i] = _extra_op_args[i] + "_scalar";
+    for (auto& _extra_op_arg : _extra_op_args) {
+      _extra_op_arg.append("_scalar");
     }
   }
   const auto& extra_op_arg_list = getExtraArgList(_extra_op_args);
@@ -69,7 +74,8 @@ std::string getQuantizeForScalar(const std::string& value) {
           )" +
       value + "_tensor : Tensor = aten::scalar_tensor(" + value + ", " + value +
       "_float_scalar_type";
-  for (auto i = 0; i < 3; ++i) {
+  for (const auto i : c10::irange(3)) {
+    (void)i; // Suppress unused variable warning
     quantize_pattern += ", " + value + "_none";
   }
   quantize_pattern += ")";
@@ -169,6 +175,7 @@ QuantFusionInfo getClampOpFusionInfo(
   op_pattern += R"(
           %r = )";
   std::vector<std::string> scalar_extra_args;
+  scalar_extra_args.reserve(extra_op_args.size());
   for (const auto& arg : extra_op_args) {
     scalar_extra_args.push_back(arg + "_scalar");
   }
@@ -1051,6 +1058,29 @@ graph(%a_quant, %alpha, %scale, %input_scale, %r_scale, %r_zero_point, %r_dtype)
       sigmoid_,
       tanh,
       tanh_,
+  };
+}
+
+inline std::vector<QuantFusionInfo>
+dynamic_quantized_linear_pattern_and_replacements() {
+  std::string linear_dynamic = R"(
+graph(%packed_params, %a):
+        %w_quant : Tensor, %b : Tensor? = quantized::linear_unpack(%packed_params)
+        %w_dequant = aten::dequantize(%w_quant)
+        %r = aten::linear(%a, %w_dequant, %b)
+        return (%r) )";
+
+  // This pattern ignores reduce range
+  // Set the reduce range to default to true, since qnnpack backend ignores this
+  // argument.
+  std::string quantized_linear_dynamic = R"(
+graph(%packed_params, %a):
+        %reduce_range : bool = prim::Constant[value=1]()
+        %r = quantized::linear_dynamic(%a, %packed_params, %reduce_range)
+        return (%r) )";
+
+  return {
+      {"quantized::linear_dynamic", linear_dynamic, quantized_linear_dynamic},
   };
 }
 

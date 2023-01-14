@@ -3,6 +3,7 @@ from torch.distributions import constraints
 from torch.distributions.categorical import Categorical
 from torch.distributions.distribution import Distribution
 
+__all__ = ['OneHotCategorical', 'OneHotCategoricalStraightThrough']
 
 class OneHotCategorical(Distribution):
     r"""
@@ -12,11 +13,11 @@ class OneHotCategorical(Distribution):
     Samples are one-hot coded vectors of size ``probs.size(-1)``.
 
     .. note:: The `probs` argument must be non-negative, finite and have a non-zero sum,
-              and it will be normalized to sum to 1 along the last dimension. attr:`probs`
+              and it will be normalized to sum to 1 along the last dimension. :attr:`probs`
               will return this normalized value.
               The `logits` argument will be interpreted as unnormalized log probabilities
               and can therefore be any real number. It will likewise be normalized so that
-              the resulting probabilities sum to 1 along the last dimension. attr:`logits`
+              the resulting probabilities sum to 1 along the last dimension. :attr:`logits`
               will return this normalized value.
 
     See also: :func:`torch.distributions.Categorical` for specifications of
@@ -24,6 +25,7 @@ class OneHotCategorical(Distribution):
 
     Example::
 
+        >>> # xdoctest: +IGNORE_WANT("non-deterinistic")
         >>> m = OneHotCategorical(torch.tensor([ 0.25, 0.25, 0.25, 0.25 ]))
         >>> m.sample()  # equal probability of 0, 1, 2, 3
         tensor([ 0.,  0.,  0.,  1.])
@@ -69,6 +71,12 @@ class OneHotCategorical(Distribution):
     @property
     def mean(self):
         return self._categorical.probs
+
+    @property
+    def mode(self):
+        probs = self._categorical.probs
+        mode = probs.argmax(axis=-1)
+        return torch.nn.functional.one_hot(mode, num_classes=probs.shape[-1]).to(probs)
 
     @property
     def variance(self):

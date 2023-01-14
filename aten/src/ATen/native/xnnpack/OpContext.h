@@ -63,8 +63,8 @@ class XNNPackLinearOpContext final : public LinearOpContext {
   XNNPackLinearOpContext(
       Tensor&& weight,
       c10::optional<Tensor>&& bias,
-      c10::optional<Scalar> min,
-      c10::optional<Scalar> max,
+      const c10::optional<Scalar>& min,
+      const c10::optional<Scalar>& max,
       ContextLinear&& op_context)
       : op_context_(std::move(op_context)) {
     orig_weight_ = std::move(weight);
@@ -80,8 +80,8 @@ class XNNPackLinearOpContext final : public LinearOpContext {
   static c10::intrusive_ptr<LinearOpContext> create_context(
       Tensor&& weight,
       c10::optional<Tensor>&& bias,
-      const c10::optional<Scalar> output_min,
-      const c10::optional<Scalar> output_max);
+      const c10::optional<Scalar>& output_min,
+      const c10::optional<Scalar>& output_max);
 };
 
 class Conv2dOpContext : public torch::jit::CustomClassHolder {
@@ -149,6 +149,13 @@ class TransposeConv2dOpContext : public torch::jit::CustomClassHolder {
 class XNNPackConv2dOpContext final : public Conv2dOpContext {
  private:
   ContextConv2D op_context_;
+  // xnnpack convs use indirection buffer.
+  // These buffers need setup at runtime and/or when input
+  // dims change. If we are running the same model on multiple
+  // threads, this can lead to contention where indirection buffer
+  // is being accessed and updated at the same time from two different
+  // threads.
+  std::mutex xnnp_mutex_;
 
  public:
   XNNPackConv2dOpContext(
@@ -158,8 +165,8 @@ class XNNPackConv2dOpContext final : public Conv2dOpContext {
       std::vector<int64_t>&& stride,
       std::vector<int64_t>&& dilation,
       uint64_t groups,
-      c10::optional<Scalar> min,
-      c10::optional<Scalar> max,
+      const c10::optional<Scalar>& min,
+      const c10::optional<Scalar>& max,
       ContextConv2D&& op_context)
       : op_context_(std::move(op_context)) {
     orig_weight_ = std::move(weight);
@@ -183,13 +190,20 @@ class XNNPackConv2dOpContext final : public Conv2dOpContext {
       std::vector<int64_t>&& stride,
       std::vector<int64_t>&& dilation,
       int64_t groups,
-      const c10::optional<Scalar> output_min,
-      const c10::optional<Scalar> output_max);
+      const c10::optional<Scalar>& output_min,
+      const c10::optional<Scalar>& output_max);
 };
 
 class XNNPackTransposeConv2dOpContext final : public TransposeConv2dOpContext {
  private:
   ContextConv2D op_context_;
+  // xnnpack convs use indirection buffer.
+  // These buffers need setup at runtime and/or when input
+  // dims change. If we are running the same model on multiple
+  // threads, this can lead to contention where indirection buffer
+  // is being accessed and updated at the same time from two different
+  // threads.
+  std::mutex xnnp_mutex_;
 
  public:
   XNNPackTransposeConv2dOpContext(
@@ -200,8 +214,8 @@ class XNNPackTransposeConv2dOpContext final : public TransposeConv2dOpContext {
       std::vector<int64_t>&& stride,
       std::vector<int64_t>&& dilation,
       uint64_t groups,
-      c10::optional<Scalar> min,
-      c10::optional<Scalar> max,
+      const c10::optional<Scalar>& min,
+      const c10::optional<Scalar>& max,
       ContextConv2D&& op_context)
       : op_context_(std::move(op_context)) {
     orig_weight_ = std::move(weight);
@@ -227,8 +241,8 @@ class XNNPackTransposeConv2dOpContext final : public TransposeConv2dOpContext {
       std::vector<int64_t>&& stride,
       std::vector<int64_t>&& dilation,
       int64_t groups,
-      const c10::optional<Scalar> output_min,
-      const c10::optional<Scalar> output_max);
+      const c10::optional<Scalar>& output_min,
+      const c10::optional<Scalar>& output_max);
 };
 
 } // namespace xnnpack

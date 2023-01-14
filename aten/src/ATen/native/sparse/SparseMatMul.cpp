@@ -1,12 +1,24 @@
-#include <ATen/ATen.h>
+#define TORCH_ASSERT_ONLY_METHOD_OPERATORS
+#include <ATen/core/Tensor.h>
 #include <ATen/Config.h>
+#include <ATen/Dispatch.h>
 #include <ATen/NamedTensorUtils.h>
-#include <ATen/NativeFunctions.h>
-#include <ATen/Parallel.h>
 #include <ATen/SparseTensorImpl.h>
 #include <ATen/SparseTensorUtils.h>
 #include <ATen/native/Resize.h>
+#include <ATen/native/StridedRandomAccessor.h>
+#include <ATen/native/CompositeRandomAccessor.h>
+#include <c10/util/irange.h>
 #include <unordered_map>
+
+#ifndef AT_PER_OPERATOR_HEADERS
+#include <ATen/Functions.h>
+#include <ATen/NativeFunctions.h>
+#else
+#include <ATen/ops/_sparse_sparse_matmul_native.h>
+#include <ATen/ops/empty.h>
+#include <ATen/ops/empty_like_native.h>
+#endif
 
 namespace at { namespace native {
 
@@ -20,6 +32,7 @@ using namespace at::sparse;
       https://doi.org/10.1007/BF02070824
 */
 namespace {
+// NOLINTNEXTLINE(modernize-avoid-c-arrays,cppcoreguidelines-avoid-c-arrays)
 void csr_to_coo(const int64_t n_row, const int64_t Ap[], int64_t Bi[]) {
   /*
     Expands a compressed row pointer into a row indices array
@@ -30,7 +43,7 @@ void csr_to_coo(const int64_t n_row, const int64_t Ap[], int64_t Bi[]) {
     Output:
       `Bi` is the row indices
   */
-  for (int64_t i = 0; i < n_row; i++) {
+  for (const auto i : c10::irange(n_row)) {
     for (int64_t jj = Ap[i]; jj < Ap[i + 1]; jj++) {
       Bi[jj] = i;
     }
@@ -40,9 +53,13 @@ void csr_to_coo(const int64_t n_row, const int64_t Ap[], int64_t Bi[]) {
 int64_t _csr_matmult_maxnnz(
     const int64_t n_row,
     const int64_t n_col,
+    // NOLINTNEXTLINE(modernize-avoid-c-arrays,cppcoreguidelines-avoid-c-arrays)
     const int64_t Ap[],
+    // NOLINTNEXTLINE(modernize-avoid-c-arrays,cppcoreguidelines-avoid-c-arrays)
     const int64_t Aj[],
+    // NOLINTNEXTLINE(modernize-avoid-c-arrays,cppcoreguidelines-avoid-c-arrays)
     const int64_t Bp[],
+    // NOLINTNEXTLINE(modernize-avoid-c-arrays,cppcoreguidelines-avoid-c-arrays)
     const int64_t Bj[]) {
   /*
     Compute needed buffer size for matrix `C` in `C = A@B` operation.
@@ -52,7 +69,7 @@ int64_t _csr_matmult_maxnnz(
   */
   std::vector<int64_t> mask(n_col, -1);
   int64_t nnz = 0;
-  for (int64_t i = 0; i < n_row; i++) {
+  for (const auto i : c10::irange(n_row)) {
     int64_t row_nnz = 0;
 
     for (int64_t jj = Ap[i]; jj < Ap[i + 1]; jj++) {
@@ -75,14 +92,23 @@ template<class scalar_t>
 void _csr_matmult(
     const int64_t n_row,
     const int64_t n_col,
+    // NOLINTNEXTLINE(modernize-avoid-c-arrays,cppcoreguidelines-avoid-c-arrays)
     const int64_t Ap[],
+    // NOLINTNEXTLINE(modernize-avoid-c-arrays,cppcoreguidelines-avoid-c-arrays)
     const int64_t Aj[],
+    // NOLINTNEXTLINE(modernize-avoid-c-arrays,cppcoreguidelines-avoid-c-arrays)
     const scalar_t Ax[],
+    // NOLINTNEXTLINE(modernize-avoid-c-arrays,cppcoreguidelines-avoid-c-arrays)
     const int64_t Bp[],
+    // NOLINTNEXTLINE(modernize-avoid-c-arrays,cppcoreguidelines-avoid-c-arrays)
     const int64_t Bj[],
+    // NOLINTNEXTLINE(modernize-avoid-c-arrays,cppcoreguidelines-avoid-c-arrays)
     const scalar_t Bx[],
+    // NOLINTNEXTLINE(modernize-avoid-c-arrays,cppcoreguidelines-avoid-c-arrays)
     int64_t Cp[],
+    // NOLINTNEXTLINE(modernize-avoid-c-arrays,cppcoreguidelines-avoid-c-arrays)
     int64_t Cj[],
+    // NOLINTNEXTLINE(modernize-avoid-c-arrays,cppcoreguidelines-avoid-c-arrays)
     scalar_t Cx[]) {
   /*
     Compute CSR entries for matrix C = A@B.
@@ -114,19 +140,19 @@ void _csr_matmult(
 
   Cp[0] = 0;
 
-  for (int64_t i = 0; i < n_row; i++) {
+  for (const auto i : c10::irange(n_row)) {
     int64_t head = -2;
     int64_t length = 0;
 
     int64_t jj_start = Ap[i];
     int64_t jj_end = Ap[i + 1];
-    for (int64_t jj = jj_start; jj < jj_end; jj++) {
+    for (const auto jj : c10::irange(jj_start, jj_end)) {
       int64_t j = Aj[jj];
       scalar_t v = Ax[jj];
 
       int64_t kk_start = Bp[j];
       int64_t kk_end = Bp[j + 1];
-      for (int64_t kk = kk_start; kk < kk_end; kk++) {
+      for (const auto kk : c10::irange(kk_start, kk_end)) {
         int64_t k = Bj[kk];
 
         sums[k] += v * Bx[kk];
@@ -139,7 +165,11 @@ void _csr_matmult(
       }
     }
 
-    for (int64_t jj = 0; jj < length; jj++) {
+    for (const auto jj : c10::irange(length)) {
+      (void)jj; //Suppress unused variable warning
+
+      // NOTE: the linked list that encodes col indices
+      // is not guaranteed to be sorted.
       Cj[nnz] = head;
       Cx[nnz] = sums[head];
       nnz++;
@@ -150,6 +180,17 @@ void _csr_matmult(
       next[temp] = -1; // clear arrays
       sums[temp] = 0;
     }
+
+    // Make sure that col indices are sorted.
+    // TODO: a better approach is to implement a CSR @ CSC kernel.
+    auto col_indices_accessor = StridedRandomAccessor<int64_t>(Cj + nnz - length, 1);
+    auto val_accessor = StridedRandomAccessor<scalar_t>(Cx + nnz - length, 1);
+    auto kv_accessor = CompositeRandomAccessorCPU<
+      decltype(col_indices_accessor), decltype(val_accessor)
+    >(col_indices_accessor, val_accessor);
+    std::sort(kv_accessor, kv_accessor + length, [](const auto& lhs, const auto& rhs) -> bool {
+        return get<0>(lhs) < get<0>(rhs);
+    });
 
     Cp[i + 1] = nnz;
   }
@@ -166,25 +207,18 @@ void sparse_matmul_kernel(
   */
 
   auto M = mat1.size(0);
-  auto K = mat1.size(1);
   auto N = mat2.size(1);
 
-  auto mat1_indices_ = mat1._indices().contiguous();
-  auto mat1_values = mat1._values().contiguous();
-  Tensor mat1_row_indices = mat1_indices_.select(0, 0);
-  Tensor mat1_col_indices = mat1_indices_.select(0, 1);
+  const auto mat1_csr = mat1.to_sparse_csr();
+  const auto mat2_csr = mat2.to_sparse_csr();
 
-  Tensor mat1_indptr = coo_to_csr(mat1_row_indices.data_ptr<int64_t>(), M, mat1._nnz());
-
-  auto mat2_indices_ = mat2._indices().contiguous();
-  auto mat2_values = mat2._values().contiguous();
-  Tensor mat2_row_indices = mat2_indices_.select(0, 0);
-  Tensor mat2_col_indices = mat2_indices_.select(0, 1);
-
-  Tensor mat2_indptr = coo_to_csr(mat2_row_indices.data_ptr<int64_t>(), K, mat2._nnz());
-
-  auto nnz = _csr_matmult_maxnnz(M, N, mat1_indptr.data_ptr<int64_t>(), mat1_col_indices.data_ptr<int64_t>(),
-      mat2_indptr.data_ptr<int64_t>(), mat2_col_indices.data_ptr<int64_t>());
+  const auto nnz = _csr_matmult_maxnnz(
+      M,
+      N,
+      mat1_csr.crow_indices().data_ptr<int64_t>(),
+      mat1_csr.col_indices().data_ptr<int64_t>(),
+      mat2_csr.crow_indices().data_ptr<int64_t>(),
+      mat2_csr.col_indices().data_ptr<int64_t>());
 
   auto output_indices = output._indices();
   auto output_values = output._values();
@@ -196,11 +230,22 @@ void sparse_matmul_kernel(
   Tensor output_row_indices = output_indices.select(0, 0);
   Tensor output_col_indices = output_indices.select(0, 1);
 
-  _csr_matmult(M, N, mat1_indptr.data_ptr<int64_t>(), mat1_col_indices.data_ptr<int64_t>(), mat1_values.data_ptr<scalar_t>(),
-  mat2_indptr.data_ptr<int64_t>(), mat2_col_indices.data_ptr<int64_t>(), mat2_values.data_ptr<scalar_t>(),
-  output_indptr.data_ptr<int64_t>(), output_col_indices.data_ptr<int64_t>(), output_values.data_ptr<scalar_t>());
+  // TODO: replace with a CSR @ CSC kernel for better performance.
+  _csr_matmult(
+      M,
+      N,
+      mat1_csr.crow_indices().data_ptr<int64_t>(),
+      mat1_csr.col_indices().data_ptr<int64_t>(),
+      mat1_csr.values().data_ptr<scalar_t>(),
+      mat2_csr.crow_indices().data_ptr<int64_t>(),
+      mat2_csr.col_indices().data_ptr<int64_t>(),
+      mat2_csr.values().data_ptr<scalar_t>(),
+      output_indptr.data_ptr<int64_t>(),
+      output_col_indices.data_ptr<int64_t>(),
+      output_values.data_ptr<scalar_t>());
 
   csr_to_coo(M, output_indptr.data_ptr<int64_t>(), output_row_indices.data_ptr<int64_t>());
+  output._coalesced_(true);
 }
 
 } // end anonymous namespace
@@ -223,7 +268,7 @@ Tensor sparse_sparse_matmul_cpu(const Tensor& mat1_, const Tensor& mat2_) {
   auto output = at::native::empty_like(mat1_);
   output.sparse_resize_and_clear_({mat1_.size(0), mat2_.size(1)}, mat1_.sparse_dim(), 0);
 
-  AT_DISPATCH_FLOATING_TYPES(mat1_.scalar_type(), "sparse_matmul", [&] {
+  AT_DISPATCH_FLOATING_AND_COMPLEX_TYPES(mat1_.scalar_type(), "sparse_matmul", [&] {
     sparse_matmul_kernel<scalar_t>(output, mat1_.coalesce(), mat2_.coalesce());
   });
   return output;

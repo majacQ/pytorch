@@ -1,10 +1,14 @@
 #pragma once
 
 #ifdef TORCH_ENABLE_LLVM
+#include <c10/macros/Macros.h>
 #include <c10/util/Exception.h>
-#include <torch/csrc/WindowsTorchApiMacro.h>
+#include <c10/util/Optional.h>
+#include <torch/csrc/Export.h>
 
+C10_DIAGNOSTIC_PUSH_AND_IGNORED_IF_DEFINED("-Wsuggest-override")
 #include <llvm/ExecutionEngine/JITSymbol.h>
+C10_DIAGNOSTIC_POP()
 #include <llvm/ExecutionEngine/Orc/Core.h>
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
 #include <llvm/Target/TargetMachine.h>
@@ -45,7 +49,10 @@ class PytorchLLVMJITImpl;
 
 class TORCH_API PytorchLLVMJIT {
  public:
-  PytorchLLVMJIT();
+  PytorchLLVMJIT(
+      c10::optional<std::string> triple,
+      c10::optional<std::string> cpu,
+      c10::optional<std::string> attrs);
   ~PytorchLLVMJIT();
 
   void addModule(std::unique_ptr<Module> M, std::unique_ptr<LLVMContext> C);

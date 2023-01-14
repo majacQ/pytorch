@@ -36,7 +36,7 @@ class OpenCLContext final {
  public:
   explicit OpenCLContext();
   explicit OpenCLContext(const DeviceOption& option) {
-    DCHECK_EQ(option.device_type(), PROTO_OPENCL);
+    TORCH_DCHECK_EQ(option.device_type(), PROTO_OPENCL);
     OpenCLContext();
   }
   ~OpenCLContext() {}
@@ -64,7 +64,7 @@ class OpenCLContext final {
     CopyBytes<SrcContext, DstContext>(n * meta.itemsize(), src, dst);
   }
 
-  void SwitchToDevice(int a, ...) {
+  void SwitchToDevice(int64_t a, ...) {
     auto& ctx = GetSingleton();
     CAFFE_ENFORCE(a < ctx.devices.size());
     ctx.device = ctx.devices[a];

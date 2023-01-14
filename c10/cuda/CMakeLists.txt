@@ -20,20 +20,26 @@ configure_file(
 # torch/utils/hipify/cuda_to_hip_mappings.py for new files
 # and headers you add
 set(C10_CUDA_SRCS
-    CUDAStream.cpp
-    CUDAFunctions.cpp
     CUDACachingAllocator.cpp
+    CUDADeviceAssertionHost.cpp
+    CUDAException.cpp
+    CUDAFunctions.cpp
+    CUDAMallocAsyncAllocator.cpp
+    CUDAMiscFunctions.cpp
+    CUDAStream.cpp
     impl/CUDAGuardImpl.cpp
     impl/CUDATest.cpp
-    CUDAFunctions.cpp
 )
 set(C10_CUDA_HEADERS
+    CUDACachingAllocator.h
+    CUDADeviceAssertionHost.h
     CUDAException.h
+    CUDAFunctions.h
     CUDAGuard.h
     CUDAMacros.h
     CUDAMathCompat.h
+    CUDAMiscFunctions.h
     CUDAStream.h
-    CUDAFunctions.h
     impl/CUDAGuardImpl.h
     impl/CUDATest.h
 )
@@ -48,9 +54,7 @@ if(${COMPILER_SUPPORTS_HIDDEN_VISIBILITY})
 endif()
 
 # ---[ Dependency of c10_cuda
-target_link_libraries(c10_cuda PUBLIC c10)
-
-target_link_libraries(c10_cuda INTERFACE torch::cudart)
+target_link_libraries(c10_cuda PUBLIC c10 torch::cudart)
 
 target_include_directories(
     c10_cuda PUBLIC

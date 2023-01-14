@@ -101,7 +101,7 @@ def _print_cont(msg):
 
 
 def _run_printable(cmd):
-    proc = subprocess.run(shlex.split(cmd), capture_output=True)
+    proc = subprocess.run(shlex.split(cmd), capture_output=True)  # type: ignore[call-overload]
     assert proc.returncode == 0
 
     buffer = io.BytesIO()
@@ -212,8 +212,11 @@ def run_worker(rank, world_size):
     if rank == (NUM_TRAINERS + NUM_PS):
 
         rpc.init_rpc(
-            "master", rank=rank, backend=BackendType.TENSORPIPE, world_size=world_size
+            "master", rank=rank,
+            backend=BackendType.TENSORPIPE,  # type: ignore[attr-defined]
+            world_size=world_size
         )
+
 
         # Build the Embedding tables on the Parameter Servers.
         emb_rref_list = []
@@ -278,7 +281,7 @@ def run_worker(rank, world_size):
             ps_name,
             rank=rank,
             world_size=world_size,
-            backend=BackendType.TENSORPIPE,
+            backend=BackendType.TENSORPIPE,  # type: ignore[attr-defined]
             rpc_backend_options=rpc_backend_options,
         )
         # parameter server do nothing
@@ -332,7 +335,7 @@ if __name__ == "__main__":
         "--embedding-dim",
         type=int,
         default=EMBEDDING_DIM,
-        help="Number of embedding dimentions.",
+        help="Number of embedding dimensions.",
     )
     parser.add_argument(
         "--warmup-cycles",

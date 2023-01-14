@@ -4,6 +4,7 @@ from torch.distributions import constraints
 from torch.distributions.distribution import Distribution
 from torch.distributions.utils import probs_to_logits, logits_to_probs, lazy_property
 
+__all__ = ['Categorical']
 
 class Categorical(Distribution):
     r"""
@@ -23,17 +24,18 @@ class Categorical(Distribution):
     relative probability vectors.
 
     .. note:: The `probs` argument must be non-negative, finite and have a non-zero sum,
-              and it will be normalized to sum to 1 along the last dimension. attr:`probs`
+              and it will be normalized to sum to 1 along the last dimension. :attr:`probs`
               will return this normalized value.
               The `logits` argument will be interpreted as unnormalized log probabilities
               and can therefore be any real number. It will likewise be normalized so that
-              the resulting probabilities sum to 1 along the last dimension. attr:`logits`
+              the resulting probabilities sum to 1 along the last dimension. :attr:`logits`
               will return this normalized value.
 
     See also: :func:`torch.multinomial`
 
     Example::
 
+        >>> # xdoctest: +IGNORE_WANT("non-deterinistic")
         >>> m = Categorical(torch.tensor([ 0.25, 0.25, 0.25, 0.25 ]))
         >>> m.sample()  # equal probability of 0, 1, 2, 3
         tensor(3)
@@ -100,6 +102,10 @@ class Categorical(Distribution):
     @property
     def mean(self):
         return torch.full(self._extended_shape(), nan, dtype=self.probs.dtype, device=self.probs.device)
+
+    @property
+    def mode(self):
+        return self.probs.argmax(axis=-1)
 
     @property
     def variance(self):

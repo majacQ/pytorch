@@ -1,9 +1,10 @@
+import os
+import sys
+from enum import Enum
 
 import torch
-import sys
 
-
-def is_available():
+def is_available() -> bool:
     """
     Returns ``True`` if the distributed package is available. Otherwise,
     ``torch.distributed`` does not expose any other APIs. Currently,
@@ -18,6 +19,8 @@ def is_available():
 if is_available() and not torch._C._c10d_init():
     raise RuntimeError("Failed to initialize torch.distributed")
 
+# Custom Runtime Errors thrown from the distributed package
+DistBackendError = torch._C._DistBackendError
 
 if is_available():
     from torch._C._distributed_c10d import (
@@ -25,27 +28,65 @@ if is_available():
         FileStore,
         TCPStore,
         ProcessGroup,
+        Backend as _Backend,
+        PrefixStore,
         Reducer,
+        Logger,
         BuiltinCommHookType,
+        GradBucket,
+        Work as _Work,
         _DEFAULT_FIRST_BUCKET_BYTES,
-        _GradBucket,
         _register_comm_hook,
         _register_builtin_comm_hook,
         _broadcast_coalesced,
         _compute_bucket_assignment_by_size,
+        _verify_params_across_processes,
         _test_python_store,
-        _set_construction_logging_data,
-        _get_ddp_logging_data
+        DebugLevel,
+        get_debug_level,
+        set_debug_level,
+        set_debug_level_from_env,
+        _make_nccl_premul_sum,
     )
-    if sys.platform != 'win32':
+
+    if sys.platform != "win32":
         from torch._C._distributed_c10d import (
             HashStore,
             _round_robin_process_groups,
         )
 
-    from .distributed_c10d import *
+    from .distributed_c10d import *  # noqa: F403
+
     # Variables prefixed with underscore are not auto imported
     # See the comment in `distributed_c10d.py` above `_backend` on why we expose
     # this.
 
-    from .distributed_c10d import _backend
+    from .distributed_c10d import (
+        _backend,
+        _all_gather_base,
+        _reduce_scatter_base,
+        _create_process_group_wrapper,
+        _rank_not_in_group,
+        _c10d_error_logger,
+    )
+
+    from .rendezvous import (
+        rendezvous,
+        _create_store_from_options,
+        register_rendezvous_handler,
+    )
+
+    from .remote_device import _remote_device
+
+    set_debug_level_from_env()
+
+else:
+    # This stub is sufficient to get
+    #   python test/test_public_bindings.py -k test_correct_module_names
+    # working even when USE_DISTRIBUTED=0.  Feel free to add more
+    # stubs as necessary.
+    # We cannot define stubs directly because they confuse pyre
+
+    class _ProcessGroupStub:
+        pass
+    sys.modules["torch.distributed"].ProcessGroup = _ProcessGroupStub  # type: ignore[attr-defined]

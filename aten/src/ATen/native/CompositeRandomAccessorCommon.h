@@ -1,3 +1,5 @@
+#include <utility>
+
 #pragma once
 
 namespace at { namespace native {
@@ -60,7 +62,7 @@ public:
 
   C10_HOST_DEVICE
   references_holder(references refs)
-    : refs{refs}
+    : refs{std::move(refs)}
   {}
 
   C10_HOST_DEVICE
@@ -121,6 +123,9 @@ public:
   using pointer = typename std::iterator_traits<KeyAccessor>::pointer;
   using difference_type = typename std::iterator_traits<KeyAccessor>::difference_type;
   using iterator_category = std::random_access_iterator_tag;
+
+  C10_HOST_DEVICE
+  CompositeRandomAccessor() = default;
 
   C10_HOST_DEVICE
   CompositeRandomAccessor(KeyAccessor keys, ValueAccessor values)

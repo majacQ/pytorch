@@ -2,6 +2,7 @@ import torch
 from functools import reduce
 from .optimizer import Optimizer
 
+__all__ = ['LBFGS']
 
 def _cubic_interpolate(x1, f1, g1, x2, f2, g2, bounds=None):
     # ported from https://github.com/torch/optim/blob/master/polyinterp.lua
@@ -182,7 +183,7 @@ def _strong_wolfe(obj_func,
 
 class LBFGS(Optimizer):
     """Implements L-BFGS algorithm, heavily inspired by `minFunc
-    <https://www.cs.ubc.ca/~schmidtm/Software/minFunc.html>`.
+    <https://www.cs.ubc.ca/~schmidtm/Software/minFunc.html>`_.
 
     .. warning::
         This optimizer doesn't support per-parameter options and parameter
@@ -284,7 +285,7 @@ class LBFGS(Optimizer):
         """Performs a single optimization step.
 
         Args:
-            closure (callable): A closure that reevaluates the model
+            closure (Callable): A closure that reevaluates the model
                 and returns the loss.
         """
         assert len(self.param_groups) == 1

@@ -12,7 +12,7 @@ from torch import Tensor
 
 from .phony import get_phony
 
-__all__: List[str] = []
+__all__: List[str] = ["fork", "Fork", "join", "Join"]
 
 
 def fork(input: Tensor) -> Tuple[Tensor, Tensor]:
@@ -27,12 +27,12 @@ def fork(input: Tensor) -> Tuple[Tensor, Tensor]:
 
 class Fork(torch.autograd.Function):
     @staticmethod
-    def forward(ctx: "Fork", input: Tensor) -> Tuple[Tensor, Tensor]:  # type: ignore
+    def forward(ctx: "Fork", input: Tensor) -> Tuple[Tensor, Tensor]:  # type: ignore[override]
         phony = get_phony(input.device, requires_grad=False)
         return input.detach(), phony.detach()
 
     @staticmethod
-    def backward(ctx: "Fork", grad_input: Tensor, grad_grad: Tensor) -> Tensor:  # type: ignore
+    def backward(ctx: "Fork", grad_input: Tensor, grad_grad: Tensor) -> Tensor:  # type: ignore[override]
         return grad_input
 
 
@@ -46,9 +46,9 @@ def join(input: Tensor, phony: Tensor) -> Tensor:
 
 class Join(torch.autograd.Function):
     @staticmethod
-    def forward(ctx: "Join", input: Tensor, phony: Tensor) -> Tensor:  # type: ignore
+    def forward(ctx: "Join", input: Tensor, phony: Tensor) -> Tensor:  # type: ignore[override]
         return input.detach()
 
     @staticmethod
-    def backward(ctx: "Join", grad_input: Tensor) -> Tuple[Tensor, None]:  # type: ignore
+    def backward(ctx: "Join", grad_input: Tensor) -> Tuple[Tensor, None]:  # type: ignore[override]
         return grad_input, None

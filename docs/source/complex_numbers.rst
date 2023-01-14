@@ -3,13 +3,16 @@
 Complex Numbers
 ===============
 
+.. note:: When using complex numbers, use Pytorch with CUDA 11.6 downloaded via pip wheel as described in
+   `Get Started <https://pytorch.org/get-started/locally/>`__ and select the CUDA 11.6 pip package.
+
 Complex numbers are numbers that can be expressed in the form :math:`a + bj`, where a and b are real numbers,
-and *j* is a solution of the equation :math:`x^2 = −1`. Complex numbers frequently occur in mathematics and
-engineering, especially in signal processing. Traditionally many users and libraries (e.g., TorchAudio) have
+and *j* is called the imaginary unit, which satisfies the equation :math:`j^2 = -1`. Complex numbers frequently occur in mathematics and
+engineering, especially in topics like signal processing. Traditionally many users and libraries (e.g., TorchAudio) have
 handled complex numbers by representing the data in float tensors with shape :math:`(..., 2)` where the last
 dimension contains the real and imaginary values.
 
-Tensors of complex dtypes provide a more natural user experience for working with complex numbers. Operations on
+Tensors of complex dtypes provide a more natural user experience while working with complex numbers. Operations on
 complex tensors (e.g., :func:`torch.mv`, :func:`torch.matmul`) are likely to be faster and more memory efficient
 than operations on float tensors mimicking them. Operations involving complex numbers in PyTorch are optimized
 to use vectorized assembly instructions and specialized kernels (e.g. LAPACK, cuBlas).
@@ -94,7 +97,7 @@ Angle and abs
 -------------
 
 The angle and absolute values of a complex tensor can be computed using :func:`torch.angle` and
-`torch.abs`.
+:func:`torch.abs`.
 
 ::
 

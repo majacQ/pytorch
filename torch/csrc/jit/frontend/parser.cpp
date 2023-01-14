@@ -6,8 +6,7 @@
 #include <torch/csrc/jit/frontend/tree.h>
 #include <torch/csrc/jit/frontend/tree_views.h>
 
-namespace torch {
-namespace jit {
+namespace torch::jit {
 
 Decl mergeTypesFromTypeComment(
     const Decl& decl,
@@ -115,7 +114,8 @@ struct ParserImpl {
       } break;
       case TK_TRUE:
       case TK_FALSE:
-      case TK_NONE: {
+      case TK_NONE:
+      case TK_NONE_TYPE: {
         auto k = L.cur().kind;
         auto r = L.cur().range;
         prefix = create_compound(k, r, {});
@@ -263,6 +263,7 @@ struct ParserImpl {
   }
   Expr parseExp(int precedence) {
     TreeRef prefix;
+    // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
     int unary_prec;
     if (shared.isUnary(L.cur().kind, &unary_prec)) {
       auto kind = L.cur().kind;
@@ -282,6 +283,7 @@ struct ParserImpl {
     } else {
       prefix = parseBaseExp();
     }
+    // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
     int binary_prec;
     while (shared.isBinary(L.cur().kind, &binary_prec)) {
       if (binary_prec <= precedence) // not allowed to parse something which is
@@ -819,5 +821,4 @@ Expr Parser::parseExp() {
   return pImpl->parseExp();
 }
 
-} // namespace jit
-} // namespace torch
+} // namespace torch::jit

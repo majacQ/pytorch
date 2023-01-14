@@ -3,6 +3,7 @@ from torch.distributions.normal import Normal
 from torch.distributions.transformed_distribution import TransformedDistribution
 from torch.distributions.transforms import StickBreakingTransform
 
+__all__ = ['LogisticNormal']
 
 class LogisticNormal(TransformedDistribution):
     r"""
@@ -21,7 +22,8 @@ class LogisticNormal(TransformedDistribution):
 
         >>> # logistic-normal distributed with mean=(0, 0, 0) and stddev=(1, 1, 1)
         >>> # of the base Normal distribution
-        >>> m = distributions.LogisticNormal(torch.tensor([0.0] * 3), torch.tensor([1.0] * 3))
+        >>> # xdoctest: +IGNORE_WANT("non-deterinistic")
+        >>> m = LogisticNormal(torch.tensor([0.0] * 3), torch.tensor([1.0] * 3))
         >>> m.sample()
         tensor([ 0.7653,  0.0341,  0.0579,  0.1427])
 
@@ -31,7 +33,7 @@ class LogisticNormal(TransformedDistribution):
     has_rsample = True
 
     def __init__(self, loc, scale, validate_args=None):
-        base_dist = Normal(loc, scale)
+        base_dist = Normal(loc, scale, validate_args=validate_args)
         if not base_dist.batch_shape:
             base_dist = base_dist.expand([1])
         super(LogisticNormal, self).__init__(base_dist,

@@ -59,9 +59,10 @@ TEST(GraphExecutorTest, runAsync_executor) {
     mtx.lock();
     ++asyncCounter;
     mtx.unlock();
-    at::launch(move(f));
+    at::launch(std::move(f));
   };
   std::vector<IValue> stack;
+  // NOLINTNEXTLINE(modernize-use-emplace)
   stack.push_back(module._ivalue());
   graphExecutor.runAsync(stack, launcher)->wait();
   ASSERT_TRUE(asyncCounter > 0);

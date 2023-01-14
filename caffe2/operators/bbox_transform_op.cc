@@ -100,7 +100,7 @@ bool BBoxTransformOp<float, CPUContext>::RunOnDevice() {
   CAFFE_ENFORCE_EQ(iminfo_in.dim32(1), 3);
   const int batch_size = iminfo_in.dim32(0);
 
-  DCHECK_EQ(weights_.size(), 4);
+  TORCH_DCHECK_EQ(weights_.size(), 4);
 
   Eigen::Map<const ERArrXXf> boxes0(
       roi_in.data<float>(), roi_in.dim32(0), roi_in.dim32(1));
@@ -138,8 +138,11 @@ bool BBoxTransformOp<float, CPUContext>::RunOnDevice() {
     const int num_rois = num_rois_per_batch[i];
     const auto& cur_iminfo = iminfo.row(i);
     const float scale_before = cur_iminfo(2);
+    // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
     const float scale_after = apply_scale_ ? cur_iminfo(2) : 1.0;
+    // NOLINTNEXTLINE(bugprone-incorrect-roundings,cppcoreguidelines-avoid-magic-numbers)
     int img_h = int(cur_iminfo(0) / scale_before + 0.5);
+    // NOLINTNEXTLINE(bugprone-incorrect-roundings,cppcoreguidelines-avoid-magic-numbers)
     int img_w = int(cur_iminfo(1) / scale_before + 0.5);
 
     EArrXXf cur_boxes =

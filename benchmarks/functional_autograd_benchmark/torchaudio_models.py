@@ -330,8 +330,9 @@ class TransformerModel(nn.Module):
         super(TransformerModel, self).__init__()
         try:
             from torch.nn import TransformerEncoder, TransformerEncoderLayer
-        except Exception:
-            raise ImportError('TransformerEncoder module does not exist in PyTorch 1.1 or lower.')
+        except Exception as e:
+            raise ImportError('TransformerEncoder module does not exist in PyTorch 1.1 or '
+                              'lower.') from e
         self.model_type = 'Transformer'
         self.src_mask = None
         self.pos_encoder = PositionalEncoding(ninp, dropout)
@@ -342,11 +343,6 @@ class TransformerModel(nn.Module):
         self.decoder = nn.Linear(ninp, ntoken)
 
         self.init_weights()
-
-    def _generate_square_subsequent_mask(self, sz):
-        mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
-        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
-        return mask
 
     def init_weights(self):
         initrange = 0.1
@@ -360,7 +356,7 @@ class TransformerModel(nn.Module):
             device = src.device
             # This will be created once during warmup
             if self.src_mask is None or self.src_mask.size(0) != len(src):
-                mask = self._generate_square_subsequent_mask(len(src)).to(device)
+                mask = nn.Transformer.generate_square_subsequent_mask(len(src)).to(device)
                 self.src_mask = mask
         else:
             self.src_mask = None
@@ -518,7 +514,7 @@ class ScaledDotProduct(torch.nn.Module):
                 raise RuntimeError('Only bool tensor is supported for attn_mask')
 
         # Dot product of q, k
-        attn_output_weights = torch.matmul(query, key.transpose(-2, -1))
+        attn_output_weights = torch.matmul(query, key.mT)
         if attn_mask is not None:
             attn_output_weights.masked_fill_(attn_mask, -1e8,)
         attn_output_weights = torch.nn.functional.softmax(attn_output_weights, dim=-1)

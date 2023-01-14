@@ -21,11 +21,12 @@ void fallthrough_kernel(OperatorKernel*, const OperatorHandle&, DispatchKeySet, 
 
 void ambiguous_autogradother_kernel(OperatorKernel*, const OperatorHandle& op, DispatchKeySet, Stack*) {
   TORCH_INTERNAL_ASSERT(0,
-    op.operator_name(), " has kernels registered to both Math and a backend mapped to AutogradOther. "
-    "This makes the backend kernel unreachable (see Note [Ambiguity in AutogradOther kernel]). "
-    "If it's intended to override Math kernel behavior, please open an issue to request a dedicated "
+    op.operator_name(), " has kernels registered to both CompositeImplicitAutograd and a backend mapped to AutogradOther. "
+    "This makes the backend kernel unreachable; the dispatcher will always prefer the CompositeImplicitAutograd lowering "
+    "(see Note [Ambiguity in AutogradOther kernel]). "
+    "If you want to override CompositeImplicitAutograd, please open an issue to request a dedicated "
     "Autograd dispatch key for the backend.\n",
-    "If you only want to run inference instead of training, add `at::AutoNonVariableTypeMode guard(true);` "
+    "If you only want to run inference instead of training, add `c10::InferenceMode mode;` "
     "before model.forward(). Note this guard is only available in C++ but not Python at present.",
     "\nCanonical state\n~~~~~~~~~~~\n", op.dumpState(), "\n\n");
 }
@@ -43,10 +44,11 @@ void named_not_supported_kernel(OperatorKernel*, const OperatorHandle& op, Dispa
 // single line summary of state
 std::string KernelFunction::dumpState() const {
   std::ostringstream oss;
-  if (boxed_kernel_func_ == fallthrough_kernel) {
+  auto boxed_kernel_fn = boxed_kernel_func_.getFnPtr();
+  if (boxed_kernel_fn == fallthrough_kernel) {
     oss << "fallthrough ";
   }
-  if (boxed_kernel_func_) {
+  if (boxed_kernel_fn) {
     oss << "boxed ";
   }
   if (unboxed_kernel_func_) {
@@ -56,7 +58,7 @@ std::string KernelFunction::dumpState() const {
 }
 
 bool KernelFunction::_equalsBoxedAndUnboxed(const KernelFunction& other) const {
-  return boxed_kernel_func_ == other.boxed_kernel_func_ &&
+  return boxed_kernel_func_.getFnPtr() == other.boxed_kernel_func_.getFnPtr() &&
          unboxed_kernel_func_ == other.unboxed_kernel_func_;
 }
 

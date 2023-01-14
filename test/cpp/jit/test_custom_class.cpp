@@ -45,6 +45,20 @@ TEST(CustomClassTest, TorchbindIValueAPI) {
   test_with_obj(new_stack_ivalue, "boo");
 }
 
+TEST(CustomClassTest, ScalarTypeClass) {
+  script::Module m("m");
+
+  // test make_custom_class API
+  auto cc = make_custom_class<ScalarTypeClass>(at::kFloat);
+  m.register_attribute("s", cc.type(), cc, false);
+
+  std::ostringstream oss;
+  m.save(oss);
+  std::istringstream iss(oss.str());
+  caffe2::serialize::IStreamAdapter adapter{&iss};
+  auto loaded_module = torch::jit::load(iss, torch::kCPU);
+}
+
 class TorchBindTestClass : public torch::jit::CustomClassHolder {
  public:
   std::string get() {
@@ -52,6 +66,7 @@ class TorchBindTestClass : public torch::jit::CustomClassHolder {
   }
 };
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
 constexpr char class_doc_string[] = R"(
   I am docstring for TorchBindTestClass
   Args:
@@ -60,6 +75,7 @@ constexpr char class_doc_string[] = R"(
   Return:
       How would I know? I am just a holder of some meaningless test methods.
   )";
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
 constexpr char method_doc_string[] =
     "I am docstring for TorchBindTestClass get_with_docstring method";
 
@@ -97,6 +113,7 @@ TEST(CustomClassTest, Serialization) {
       "s",
       custom_class_obj.type(),
       custom_class_obj,
+      // NOLINTNEXTLINE(bugprone-argument-comment)
       /*is_parameter=*/false);
   m.define(R"(
     def forward(self):

@@ -1,11 +1,11 @@
 import argparse
 import os
-from typing import List, Optional, Tuple
+from typing import cast, List, Optional, Tuple
 
 from ..util.setting import (
+    CompilerType,
     JSON_FOLDER_BASE_DIR,
     LOG_DIR,
-    CompilerType,
     Option,
     Test,
     TestList,
@@ -129,7 +129,7 @@ def empty_list_if_none(arg_interested_folder: Optional[List[str]]) -> List[str]:
     return arg_interested_folder
 
 
-def gcc_export_init():
+def gcc_export_init() -> None:
     remove_folder(JSON_FOLDER_BASE_DIR)
     create_folder(JSON_FOLDER_BASE_DIR)
 
@@ -161,7 +161,7 @@ def print_init_info() -> None:
     print_log("pytorch folder: ", get_pytorch_folder())
     print_log("cpp test binaries folder: ", get_oss_binary_folder(TestType.CPP))
     print_log("python test scripts folder: ", get_oss_binary_folder(TestType.PY))
-    print_log("compiler type: ", detect_compiler_type().value)
+    print_log("compiler type: ", cast(CompilerType, detect_compiler_type()).value)
     print_log(
         "llvm tool folder (only for clang, if you are using gcov please ignore it): ",
         get_llvm_tool_path(),

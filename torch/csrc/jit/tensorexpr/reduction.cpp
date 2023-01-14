@@ -2,36 +2,65 @@
 #include <torch/csrc/jit/tensorexpr/reduction.h>
 #include <torch/csrc/jit/tensorexpr/tensor.h>
 
-namespace torch {
-namespace jit {
-namespace tensorexpr {
+namespace torch::jit::tensorexpr {
 
-ReduceOp* Reducer::operator()(
-    const Buf* result_buf,
+ExprHandle Reducer::operator()(
+    BufHandle result_buf,
     ExprHandle body,
-    const std::vector<const Expr*>& output,
-    const std::vector<const Var*>& inner) const {
-  return new ReduceOp(
-      result_buf,
-      complete(result_buf, interaction_, body, output, inner),
-      output,
-      inner,
-      *this);
+    const std::vector<ExprHandle>& output,
+    const std::vector<VarHandle>& inner) const {
+  return ReduceOp::make(
+      complete(result_buf, interaction_, body, output, inner), inner, *this);
 }
 
-ReduceOp* Reducer::operator()(
-    const Buf* result_buf,
-    const Expr* body,
-    const std::vector<const Expr*>& output,
-    const std::vector<const Var*>& inner) const {
-  return new ReduceOp(
-      result_buf,
+ReduceOpPtr Reducer::operator()(
+    BufPtr result_buf,
+    ExprPtr body,
+    const std::vector<ExprPtr>& output,
+    const std::vector<VarPtr>& inner) const {
+  return alloc<ReduceOp>(
       complete(result_buf, interaction_, ExprHandle(body), output, inner),
-      output,
       inner,
       *this);
 }
 
-} // namespace tensorexpr
-} // namespace jit
-} // namespace torch
+ExprHandle Reducer::operator()(
+    BufHandle result_buf,
+    BufHandle acc_buf,
+    ExprHandle body,
+    const std::vector<ExprHandle>& output,
+    const std::vector<VarHandle>& inner) const {
+  return ReduceOp::make(
+      complete(result_buf, interaction_, body, output, inner),
+      inner,
+      result_buf,
+      acc_buf,
+      body,
+      *this);
+}
+
+ExprHandle ReduceOp::make(
+    ExprHandle body,
+    std::vector<VarHandle> reduce_args,
+    const Reducer& reducer) {
+  return ExprHandle(alloc<ReduceOp>(
+      body.node(), VarHandleVectorToVarVector(reduce_args), reducer));
+}
+
+ExprHandle ReduceOp::make(
+    ExprHandle body,
+    std::vector<VarHandle> reduce_args,
+    BufHandle result_buf,
+    BufHandle acc_buf,
+    ExprHandle ri_operand,
+    const Reducer& reducer) {
+  return ExprHandle(alloc<ReduceOp>(
+      body.node(),
+      VarHandleVectorToVarVector(reduce_args),
+      result_buf.node(),
+      acc_buf.node(),
+      ri_operand.node(),
+      reducer));
+}
+
+} // namespace torch::jit::tensorexpr

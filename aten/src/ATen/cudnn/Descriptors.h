@@ -7,10 +7,16 @@
 
 #include <ATen/cudnn/cudnn-wrapper.h>
 #include <ATen/cudnn/Utils.h>
-#include <ATen/ATen.h>
+#include <ATen/core/Tensor.h>
 #include <ATen/TensorUtils.h>
 #include <ATen/cuda/ATenCUDAGeneral.h>
 #include <cuda.h>
+
+#ifndef AT_PER_OPERATOR_HEADERS
+#include <ATen/Functions.h>
+#else
+#include <ATen/ops/empty.h>
+#endif
 
 namespace at { namespace native {
 
@@ -21,6 +27,9 @@ std::string cudnnTypeToString(cudnnDataType_t dtype);
 inline int dataSize(cudnnDataType_t dataType)
 {
   switch (dataType) {
+#if defined(CUDNN_VERSION) && CUDNN_VERSION >= 8200
+    case CUDNN_DATA_BFLOAT16:
+#endif
     case CUDNN_DATA_HALF: return 2;
     case CUDNN_DATA_FLOAT: return 4;
     default: return 8;
@@ -37,7 +46,8 @@ inline int dataSize(cudnnDataType_t dataType)
 // that the stride for dim i is the product of the sizes of dims
 // i+1 to the end.  This stride is indeed uniquely determined.  This
 // function modifies 'stride' in place so this invariant holds.
-static inline void fixSizeOneDimStride(int dim, const int *size, int *stride, bool nhwc) {
+template <typename T>
+static inline void fixSizeOneDimStride(int dim, const T *size, T *stride, bool nhwc) {
   int64_t z = 1;
   int index = 0;
   std::vector<int> permutation(dim);
@@ -132,6 +142,7 @@ class TORCH_CUDA_CPP_API TensorDescriptor : public Descriptor<
   // broadcasting size 1 dimensions.
 
   void set(const at::Tensor &t, size_t pad = 0);
+  void set(const at::Tensor &t, at::MemoryFormat memory_format, size_t pad = 0);
   void set(cudnnDataType_t dataType, IntArrayRef sizes, IntArrayRef strides, size_t pad = 0);
 
   void print();
@@ -140,7 +151,7 @@ private:
   void set(cudnnDataType_t dataType, IntArrayRef sizes, IntArrayRef strides, size_t pad, bool nhwc);
 
   void set(cudnnDataType_t dataType, int dim, int* size, int* stride, bool nhwc) {
-    fixSizeOneDimStride(dim, size, stride, nhwc);
+    fixSizeOneDimStride<int>(dim, size, stride, nhwc);
     AT_CUDNN_CHECK(cudnnSetTensorNdDescriptor(mut_desc(), dataType, dim, size, stride));
   }
 };
@@ -152,7 +163,11 @@ class TORCH_CUDA_CPP_API FilterDescriptor : public Descriptor<
                                                &cudnnCreateFilterDescriptor,
                                                &cudnnDestroyFilterDescriptor> {
  public:
-  void set(const at::Tensor &t, int64_t pad = 0, bool force_nhwc = false);
+  void set(const at::Tensor &t, int64_t pad = 0) {
+    set(t, at::MemoryFormat::Contiguous, pad);
+  }
+
+  void set(const at::Tensor &t, const at::MemoryFormat memory_format, int64_t pad = 0);
 
   void print();
 private:
@@ -206,7 +221,7 @@ struct TORCH_CUDA_CPP_API DropoutDescriptor
   // Initialize a dropout descriptor's RNG state.
   // WARNING: This function is very expensive, avoid calling this function!
   void initialize_rng(cudnnHandle_t handle, float dropout, long long int seed, const TensorOptions& options) {
-    AT_ASSERTM(dropout > 0, "dropout must be nonzero; otherwise call set_no_dropout");
+    TORCH_INTERNAL_ASSERT(dropout > 0, "dropout must be nonzero; otherwise call set_no_dropout");
     size_t state_size;
     AT_CUDNN_CHECK(cudnnDropoutGetStatesSize(handle, &state_size));
     AT_ASSERT(options.device().type() == kCUDA);
@@ -217,7 +232,7 @@ struct TORCH_CUDA_CPP_API DropoutDescriptor
 
   // Restore a dropout descriptor given a dropout probability and existing RNG state.
   void set(cudnnHandle_t handle, float dropout, at::Tensor state_) {
-    AT_ASSERTM(dropout > 0, "dropout must be nonzero; otherwise call set_no_dropout");
+    TORCH_INTERNAL_ASSERT(dropout > 0, "dropout must be nonzero; otherwise call set_no_dropout");
     state = state_;
     void *state_ptr = state.data_ptr();
     size_t state_size = state.size(0);
@@ -290,7 +305,6 @@ struct TORCH_CUDA_CPP_API CTCLossDescriptor
   void set(cudnnDataType_t datatype) {
     AT_CUDNN_CHECK(cudnnSetCTCLossDescriptor(mut_desc(), datatype));
   }
-#if CUDNN_VERSION >= 7600
   void setEx(
       cudnnDataType_t datatype,
       cudnnLossNormalizationMode_t normMode,
@@ -298,7 +312,23 @@ struct TORCH_CUDA_CPP_API CTCLossDescriptor
     AT_CUDNN_CHECK(
         cudnnSetCTCLossDescriptorEx(mut_desc(), datatype, normMode, gradMode));
   }
-#endif
+};
+
+struct TORCH_CUDA_CPP_API ActivationDescriptor
+    : public Descriptor<
+          cudnnActivationStruct,
+          &cudnnCreateActivationDescriptor,
+          &cudnnDestroyActivationDescriptor> {
+  void set(cudnnActivationMode_t mode) {
+    AT_ASSERT(
+        mode == CUDNN_ACTIVATION_RELU,
+        "TODO: support more cuDNN activation modes");
+    AT_CUDNN_CHECK(cudnnSetActivationDescriptor(
+        mut_desc(),
+        mode,
+        cudnnNanPropagation_t::CUDNN_NOT_PROPAGATE_NAN,
+        std::numeric_limits<double>::max()));
+  }
 };
 
 union Constant

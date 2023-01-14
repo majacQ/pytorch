@@ -6,6 +6,7 @@ from torch.distributions.distribution import Distribution
 from torch.distributions.transformed_distribution import TransformedDistribution
 from torch.distributions.transforms import ExpTransform
 
+__all__ = ['ExpRelaxedCategorical', 'RelaxedOneHotCategorical']
 
 class ExpRelaxedCategorical(Distribution):
     r"""
@@ -93,8 +94,9 @@ class RelaxedOneHotCategorical(TransformedDistribution):
 
     Example::
 
+        >>> # xdoctest: +IGNORE_WANT("non-deterinistic")
         >>> m = RelaxedOneHotCategorical(torch.tensor([2.2]),
-                                         torch.tensor([0.1, 0.2, 0.3, 0.4]))
+        ...                              torch.tensor([0.1, 0.2, 0.3, 0.4]))
         >>> m.sample()
         tensor([ 0.1294,  0.2324,  0.3859,  0.2523])
 
@@ -109,7 +111,7 @@ class RelaxedOneHotCategorical(TransformedDistribution):
     has_rsample = True
 
     def __init__(self, temperature, probs=None, logits=None, validate_args=None):
-        base_dist = ExpRelaxedCategorical(temperature, probs, logits)
+        base_dist = ExpRelaxedCategorical(temperature, probs, logits, validate_args=validate_args)
         super(RelaxedOneHotCategorical, self).__init__(base_dist,
                                                        ExpTransform(),
                                                        validate_args=validate_args)

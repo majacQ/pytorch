@@ -2,8 +2,12 @@
 
 #include <torch/csrc/jit/codegen/cuda/utils.h>
 
+#include <nvToolsExt.h>
+
+// NOLINTNEXTLINE(modernize-deprecated-headers)
 #include <stdio.h>
 #include <chrono>
+#include <cstdio>
 
 namespace torch {
 namespace jit {
@@ -16,7 +20,7 @@ namespace inst {
 //! This class is not intended to be used directly. Instead, the operations
 //! to be traced are marked (for example using the FUSER_PERF_SCOPE macro)
 //!
-//! In order to enable tracing, the `PYTORCH_CUDA_FUSER_TRACE` environment
+//! In order to enable tracing, the `PYTORCH_NVFUSER_TRACE` environment
 //! variable is set to point to a trace file (ex `test.trace`). The file name
 //! may be a relative or an absolute path.
 //!
@@ -27,7 +31,7 @@ namespace inst {
 //! An easy way to view traces is to type `about://tracing` in Chrome or
 //! Chromium.
 //!
-class Trace : public NonCopyable {
+class TORCH_CUDA_CU_API Trace : public NonCopyable {
  public:
   using Clock = std::chrono::steady_clock;
 
@@ -41,9 +45,15 @@ class Trace : public NonCopyable {
     if (log_file_ != nullptr) {
       logEvent('B', name);
     }
+    if (record_nvtx_range_) {
+      nvtxRangePushA(name);
+    }
   }
 
   void endEvent(const char* name) {
+    if (record_nvtx_range_) {
+      nvtxRangePop();
+    }
     if (log_file_ != nullptr) {
       logEvent('E', name);
     }
@@ -58,11 +68,12 @@ class Trace : public NonCopyable {
  private:
   FILE* log_file_ = nullptr;
   Clock::time_point start_timestamp_;
+  bool record_nvtx_range_ = true;
 };
 
 //! \internal Automatic scope for a perf marker
 //!   (normally used through the FUSER_PERF_SCOPE macro)
-class TraceScope : public NonCopyable {
+class TORCH_CUDA_CU_API TraceScope : public NonCopyable {
  public:
   explicit TraceScope(const char* event_name) : event_name_(event_name) {
     Trace::instance()->beginEvent(event_name_);
