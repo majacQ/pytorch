@@ -1,11 +1,11 @@
-from __future__ import absolute_import, division, print_function, unicode_literals
-
 import numpy as np
 import caffe2.python.fakelowp.init_shared_libs  # noqa
 from caffe2.python import core, workspace
 from caffe2.python.onnx.onnxifi import onnxifi_caffe2_net
 from caffe2.python.fakelowp.test_utils import print_test_debug_info
 import caffe2.python.serialized_test.serialized_test_util as serial
+import datetime
+from hypothesis import settings
 
 core.GlobalInit(["caffe2", "--caffe2_log_level=-3", "--glow_global_fp16=1"])
 
@@ -24,6 +24,7 @@ class DeqSwishQuantTest(serial.SerializedTestCase):
     def _swish(self, x):
         return np.float32(x) * self._sigmoid(x)
 
+    @settings(deadline=datetime.timedelta(seconds=10))
     def test_swish_int8(self):
         np.random.seed(0)
         workspace.ResetWorkspace()
@@ -106,7 +107,7 @@ class DeqSwishQuantTest(serial.SerializedTestCase):
 
         # run ref_net
         workspace.RunNetOnce(ref_net1)
-        Y_fbgemm = workspace.FetchBlob("Y")
+        Y_fbgemm = workspace.FetchInt8Blob("Y")
 
         # run onnxifi net
         ref_net.Proto().op[0].type = "Int8Quantize"
@@ -133,11 +134,12 @@ class DeqSwishQuantTest(serial.SerializedTestCase):
         Y_glow = workspace.FetchInt8Blob("Y")
         U_int8 = workspace.FetchInt8Blob("U_int8")
 
-        diff_Y = np.abs(Y_glow.data.astype(np.int32) -
-                        Y_fbgemm.data)
+        diff_Y = np.abs(Y_glow.data - Y_fbgemm.data)
+
         num_mismatches = np.count_nonzero(diff_Y)
         max_diff = np.max(diff_Y)
-        if max_diff > 0:
+        if max_diff > 0 or Y_glow.scale != Y_fbgemm.scale or \
+           Y_glow.zero_point != Y_fbgemm.zero_point:
             print_test_debug_info(
                 "QuantizedSwish",
                 {

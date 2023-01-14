@@ -49,9 +49,15 @@ TORCH_API void InsertPrepackUnpack(Module& module);
 
 TORCH_API script::Module Finalize(
     script::Module& module,
-    QuantType quant_type = QuantType::STATIC);
+    QuantType quant_type = QuantType::STATIC,
+    const std::vector<std::string>& preserved_attrs =
+        std::vector<std::string>());
 
 TORCH_API void FoldQuantizedPrepackingOps(Module& module);
 
+TORCH_API Module FinalizeOnDevicePTQ(
+    Module& module,
+    QuantType quant_type,
+    const std::string& method_name);
 } // namespace jit
 } // namespace torch

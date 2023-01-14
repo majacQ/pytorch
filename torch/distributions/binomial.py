@@ -1,9 +1,9 @@
-from numbers import Number
 import torch
 from torch.distributions import constraints
 from torch.distributions.distribution import Distribution
 from torch.distributions.utils import broadcast_all, probs_to_logits, lazy_property, logits_to_probs
 
+__all__ = ['Binomial']
 
 def _clamp_by_zero(x):
     # works like clamp(x, min=0) but has grad at 0 is 0.5
@@ -18,6 +18,7 @@ class Binomial(Distribution):
 
     Example::
 
+        >>> # xdoctest: +IGNORE_WANT("non-deterinistic")
         >>> m = Binomial(100, torch.tensor([0 , .2, .8, 1]))
         >>> x = m.sample()
         tensor([   0.,   22.,   71.,  100.])
@@ -42,18 +43,13 @@ class Binomial(Distribution):
             raise ValueError("Either `probs` or `logits` must be specified, but not both.")
         if probs is not None:
             self.total_count, self.probs, = broadcast_all(total_count, probs)
-            self.total_count = self.total_count.type_as(self.logits)
-            is_scalar = isinstance(self.probs, Number)
+            self.total_count = self.total_count.type_as(self.probs)
         else:
             self.total_count, self.logits, = broadcast_all(total_count, logits)
             self.total_count = self.total_count.type_as(self.logits)
-            is_scalar = isinstance(self.logits, Number)
 
         self._param = self.probs if probs is not None else self.logits
-        if is_scalar:
-            batch_shape = torch.Size()
-        else:
-            batch_shape = self._param.size()
+        batch_shape = self._param.size()
         super(Binomial, self).__init__(batch_shape, validate_args=validate_args)
 
     def expand(self, batch_shape, _instance=None):
@@ -73,13 +69,17 @@ class Binomial(Distribution):
     def _new(self, *args, **kwargs):
         return self._param.new(*args, **kwargs)
 
-    @constraints.dependent_property
+    @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self):
         return constraints.integer_interval(0, self.total_count)
 
     @property
     def mean(self):
         return self.total_count * self.probs
+
+    @property
+    def mode(self):
+        return ((self.total_count + 1) * self.probs).floor().clamp(max=self.total_count)
 
     @property
     def variance(self):
@@ -117,6 +117,14 @@ class Binomial(Distribution):
                           + self.total_count * torch.log1p(torch.exp(-torch.abs(self.logits)))
                           - log_factorial_n)
         return value * self.logits - log_factorial_k - log_factorial_nmk - normalize_term
+
+    def entropy(self):
+        total_count = int(self.total_count.max())
+        if not self.total_count.min() == total_count:
+            raise NotImplementedError("Inhomogeneous total count not supported by `entropy`.")
+
+        log_prob = self.log_prob(self.enumerate_support(False))
+        return -(torch.exp(log_prob) * log_prob).sum(0)
 
     def enumerate_support(self, expand=True):
         total_count = int(self.total_count.max())

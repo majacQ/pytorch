@@ -91,17 +91,16 @@ class FbFCPackedOperator final : public Operator<Context> {
     const int K = W->numRows();
     if (!W->packed()) {
       if (!packed_w_) {
+        std::vector<float> src_mat(W->matSize());
+        for (int i = 0; i < W->matSize(); ++i) {
+          src_mat[i] =
+            fbgemm::cpu_half2float(W->pmat()[i]);
+        }
         packed_w_ = std::make_unique<fbgemm::PackedGemmMatrixFP16>(
-            K,
-            W->numCols(),
-            W->blockRowSize(),
-            W->lastBrow(),
-            W->blockColSize(),
-            W->numBrow(),
-            W->numBcol(),
-            W->matSize());
-        // TODO: now we only pack with Transpose=true
-        packed_w_->packFromSrc(fbgemm::matrix_op_t::Transpose, W->pmat());
+            fbgemm::matrix_op_t::Transpose,
+            W->numRows(), W->numCols(),
+            1.0,
+            src_mat.data());
       }
       W = packed_w_.get();
     }
@@ -130,7 +129,7 @@ class FbFCPackedOperator final : public Operator<Context> {
     CAFFE_ENFORCE(N == W->numCols(), dimErrorString());
     Y_shape_cache_ = X.sizes().vec();
     // This is an invariant of canonical_axis, so we can DCHECK.
-    DCHECK_LE(canonical_axis + 1, Y_shape_cache_.size());
+    TORCH_DCHECK_LE(canonical_axis + 1, Y_shape_cache_.size());
     Y_shape_cache_.resize(canonical_axis + 1);
     Y_shape_cache_[canonical_axis] = N;
     auto* Y = Output(0, Y_shape_cache_, at::dtype<T_Y>());

@@ -1,13 +1,10 @@
-from __future__ import absolute_import, division, print_function, unicode_literals
-from .modules import LinearReLU
-from .modules import ConvReLU1d, ConvReLU2d, ConvReLU3d
-from .modules import BNReLU2d, BNReLU3d
+from .modules import *  # noqa: F403
 
 __all__ = [
-    'LinearReLU',
+    'BNReLU2d',
+    'BNReLU3d',
     'ConvReLU1d',
     'ConvReLU2d',
     'ConvReLU3d',
-    'BNReLU2d',
-    'BNReLU3d',
+    'LinearReLU',
 ]

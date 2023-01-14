@@ -1,10 +1,10 @@
 #include <gtest/gtest.h>
 
-#include <c10d/TCPStore.hpp>
 #include <torch/csrc/distributed/autograd/context/container.h>
 #include <torch/csrc/distributed/autograd/context/context.h>
 #include <torch/csrc/distributed/autograd/engine/dist_engine.h>
 #include <torch/csrc/distributed/autograd/utils.h>
+#include <torch/csrc/distributed/c10d/TCPStore.hpp>
 #include <torch/csrc/distributed/rpc/rref_context.h>
 #include <torch/csrc/distributed/rpc/script_call.h>
 #include <torch/csrc/distributed/rpc/script_remote_call.h>
@@ -19,15 +19,23 @@ namespace rpc {
 using torch::distributed::autograd::DistAutogradContainer;
 using torch::distributed::autograd::DistAutogradContext;
 
+DistAutogradContainer* getDistAutogradContainer();
+
 class TestE2EBase : public ::testing::Test {
  protected:
   void SetUp() override {
     // Setup distributed autograd.
-    autogradContainer = &DistAutogradContainer::init(0);
+    autogradContainer = getDistAutogradContainer();
 
     // Setup server store.
-    store = std::make_shared<c10d::TCPStore>(
-        serverAddress, 0, numWorkers, true, std::chrono::seconds(10));
+    c10d::TCPStoreOptions opts{
+        /* port */ 0,
+        /* isServer */ true,
+        numWorkers,
+        /* waitWorkers */ true,
+        /* timeout */ std::chrono::seconds(10)};
+
+    store = c10::make_intrusive<c10d::TCPStore>(serverAddress, opts);
 
     buildRpcAgent();
 
@@ -38,11 +46,25 @@ class TestE2EBase : public ::testing::Test {
     RpcAgent::setCurrentRpcAgent(rpcAgent);
     std::shared_ptr<TypeResolver> typeResolver =
         std::make_shared<TypeResolver>([&](const c10::QualifiedName& qn) {
+          // For Dict that is used for device map.
+          auto pos = qn.name().find("Dict");
+          if (pos != std::string::npos) {
+            return c10::StrongTypePtr(
+                nullptr,
+                c10::DictType::create(
+                    c10::StringType::get(), c10::StringType::get()));
+          }
           return c10::StrongTypePtr(
               nullptr, c10::TensorType::create(at::Tensor()));
         });
     rpcAgent->setTypeResolver(typeResolver);
     rpcAgent->start();
+  }
+
+  void TearDown() override {
+    rpcAgent->join();
+    rpcAgent->shutdown();
+    RpcAgent::setCurrentRpcAgent(nullptr);
   }
 
   c10::intrusive_ptr<OwnerRRef> createRemoteRRef(
@@ -56,19 +78,19 @@ class TestE2EBase : public ::testing::Test {
 
     ScriptRemoteCall scriptRemoteCall(
         op, {t1, t2, 1}, ownerRRef->rrefId(), ownerRRef->rrefId());
-    auto fm = autograd::sendMessageWithAutograd(
+    auto jitFuture = autograd::sendMessageWithAutograd(
         *rpcAgent,
         rpcAgent->getWorkerInfo("worker"),
         std::move(scriptRemoteCall).toMessage(),
         false);
 
-    ownerRRef->registerOwnerCreationFuture(fm);
+    ownerRRef->registerOwnerCreationFuture(jitFuture);
 
     // Builtin operators does not return py::object, and hence does not require
     // GIL for destructing the potentially deleted OwerRRef.
-    fm->addCallback(
-        [ownerRRefId = ownerRRef->rrefId()](const FutureMessage& fm) {
-          callback::finishCreatingOwnerRRef(fm, ownerRRefId);
+    jitFuture->addCallback(
+        [ownerRRefId = ownerRRef->rrefId()](JitFuture& jitFuture) {
+          callback::finishCreatingOwnerRRef(jitFuture, ownerRRefId);
         });
     return ownerRRef;
   }
@@ -81,12 +103,14 @@ class TestE2EBase : public ::testing::Test {
 
     // Send the RPC and return result.
     auto response = autograd::sendMessageWithAutograd(
-                        *rpcAgent,
-                        rpcAgent->getWorkerInfo("worker"),
-                        std::move(scriptCall).toMessage())
-                        ->wait();
+        *rpcAgent,
+        rpcAgent->getWorkerInfo("worker"),
+        std::move(scriptCall).toMessage());
+    response->waitAndThrow();
+
     MessageType messageType = MessageType::FORWARD_AUTOGRAD_RESP;
-    auto wrappedResponse = deserializeResponse(response, messageType);
+    auto wrappedResponse = deserializeResponse(
+        std::move(*response->value().toCustomClass<Message>()), messageType);
     return static_cast<ScriptResp&>(*wrappedResponse).value().toTensor();
   }
 
@@ -139,13 +163,9 @@ class TestE2EBase : public ::testing::Test {
   std::shared_ptr<RpcAgent> rpcAgent;
   static const size_t numIters;
   static const size_t numWorkers;
-  std::shared_ptr<c10d::Store> store;
+  c10::intrusive_ptr<c10d::Store> store;
   static const char* serverAddress;
 };
-
-const char* TestE2EBase::serverAddress = "127.0.0.1";
-const size_t TestE2EBase::numIters = 100;
-const size_t TestE2EBase::numWorkers = 1;
 
 } // namespace rpc
 } // namespace distributed

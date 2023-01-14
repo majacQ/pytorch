@@ -55,8 +55,9 @@ TEST(NoGradTest, SetsGradModeCorrectly) {
   torch::Tensor s = y.sum();
 
   // Mimicking python API behavior:
-  ASSERT_THROWS_WITH(s.backward(),
-    "element 0 of tensors does not require grad and does not have a grad_fn")
+  ASSERT_THROWS_WITH(
+      s.backward(),
+      "element 0 of tensors does not require grad and does not have a grad_fn")
 }
 
 struct AutogradTest : torch::test::SeedingFixture {
@@ -83,19 +84,21 @@ TEST_F(AutogradTest, CanPassCustomGradientInputs) {
   ASSERT_TRUE(x.grad().allclose(y * 2));
 }
 
-TEST(DeterministicTest, CanSetDeterministic) {
-  auto context = &at::globalContext();
-  for (bool deterministic : {true, false}) {
-    context->setDeterministic(deterministic);
-    ASSERT_TRUE(context->deterministic() == deterministic);
-  }
+TEST(UtilsTest, AmbiguousOperatorDefaults) {
+  auto tmp = at::empty({}, at::kCPU);
+  at::_test_ambiguous_defaults(tmp);
+  at::_test_ambiguous_defaults(tmp, 1);
+  at::_test_ambiguous_defaults(tmp, 1, 1);
+  at::_test_ambiguous_defaults(tmp, 2, "2");
 }
 
-TEST(DeterministicTest, CanAlertNotDeterministic) {
-  auto context = &at::globalContext();
-  context->setDeterministic(true);
-  ASSERT_ANY_THROW(context->alertNotDeterministic("test"));
-  context->setDeterministic(false);
-  // Should not throw error if deterministic setting is turned off
-  context->alertNotDeterministic("test");
+int64_t get_first_element(c10::OptionalIntArrayRef arr) {
+  return arr.value()[0];
+}
+
+TEST(OptionalArrayRefTest, DanglingPointerFix) {
+  // Ensure that the converting constructor of `OptionalArrayRef` does not
+  // create a dangling pointer when given a single value
+  ASSERT_TRUE(get_first_element(300) == 300);
+  ASSERT_TRUE(get_first_element({400}) == 400);
 }

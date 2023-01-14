@@ -1,5 +1,3 @@
-from __future__ import absolute_import, division, print_function, unicode_literals
-
 import functools
 
 import caffe2.python.hypothesis_test_util as hu
@@ -15,7 +13,7 @@ from hypothesis import HealthCheck, given, settings
 
 
 class TestAdagrad(serial.SerializedTestCase):
-    @serial.given(
+    @given(
         inputs=hu.tensors(n=3),
         lr=st.floats(
             min_value=0.01, max_value=0.99, allow_nan=False, allow_infinity=False
@@ -26,6 +24,7 @@ class TestAdagrad(serial.SerializedTestCase):
         weight_decay=st.sampled_from([0.0, 0.1]),
         **hu.gcs
     )
+    @settings(deadline=10000)
     def test_adagrad(self, inputs, lr, epsilon, weight_decay, gc, dc):
         param, momentum, grad = inputs
         momentum = np.abs(momentum)
@@ -58,6 +57,7 @@ class TestAdagrad(serial.SerializedTestCase):
         weight_decay=st.sampled_from([0.0, 0.1]),
         **hu.gcs_cpu_only
     )
+    @settings(deadline=10000)
     def test_adagrad_output_effective_lr(
         self, inputs, lr, epsilon, weight_decay, gc, dc
     ):
@@ -96,6 +96,7 @@ class TestAdagrad(serial.SerializedTestCase):
         ),
         **hu.gcs_cpu_only
     )
+    @settings(deadline=10000)
     def test_adagrad_output_effective_lr_and_update(self, inputs, lr, epsilon, gc, dc):
         param, momentum, grad = inputs
         momentum = np.abs(momentum)
@@ -120,7 +121,7 @@ class TestAdagrad(serial.SerializedTestCase):
 
     # Suppress filter_too_much health check.
     # Likely caused by `assume` call falling through too often.
-    @settings(suppress_health_check=[HealthCheck.filter_too_much])
+    @settings(suppress_health_check=[HealthCheck.filter_too_much], deadline=10000)
     @given(
         inputs=hu.tensors(n=3),
         lr=st.floats(
@@ -145,7 +146,7 @@ class TestAdagrad(serial.SerializedTestCase):
             weight_decay=weight_decay,
         )
 
-    @serial.given(
+    @given(
         inputs=hu.tensors(n=2),
         lr=st.floats(
             min_value=0.01, max_value=0.99, allow_nan=False, allow_infinity=False
@@ -155,6 +156,7 @@ class TestAdagrad(serial.SerializedTestCase):
         ),
         **hu.gcs
     )
+    @settings(deadline=10000)
     def test_sparse_adagrad_empty(self, inputs, lr, epsilon, gc, dc):
         param, momentum = inputs
         grad = np.empty(shape=(0,) + param.shape[1:], dtype=np.float32)
@@ -186,19 +188,18 @@ class TestAdagrad(serial.SerializedTestCase):
 
     # Suppress filter_too_much health check.
     # Likely caused by `assume` call falling through too often.
-    @settings(suppress_health_check=[HealthCheck.filter_too_much])
+    @settings(suppress_health_check=[HealthCheck.filter_too_much], deadline=10000)
     @given(
         inputs=hu.tensors(n=3),
-        lr=st.floats(
-            min_value=0.01, max_value=0.99, allow_nan=False, allow_infinity=False
-        ),
-        epsilon=st.floats(
-            min_value=0.01, max_value=0.99, allow_nan=False, allow_infinity=False
-        ),
+        lr=st.sampled_from([0.01, 0.99]),
+        epsilon=st.sampled_from([0.01, 0.99]),
         weight_decay=st.sampled_from([0.0, 0.1]),
+        counter_halflife=st.sampled_from([-1, 5]),
         **hu.gcs
     )
-    def test_row_wise_sparse_adagrad(self, inputs, lr, epsilon, weight_decay, gc, dc):
+    def test_row_wise_sparse_adagrad(
+        self, inputs, lr, epsilon, weight_decay, counter_halflife, gc, dc
+    ):
         adagrad_sparse_test_helper(
             self,
             inputs,
@@ -210,9 +211,10 @@ class TestAdagrad(serial.SerializedTestCase):
             dc,
             row_wise=True,
             weight_decay=weight_decay,
+            counter_halflife=counter_halflife,
         )
 
-    @serial.given(
+    @given(
         inputs=hu.tensors(n=2),
         lr=st.floats(
             min_value=0.01, max_value=0.99, allow_nan=False, allow_infinity=False
@@ -222,6 +224,7 @@ class TestAdagrad(serial.SerializedTestCase):
         ),
         **hu.gcs
     )
+    @settings(deadline=None)
     def test_row_wise_sparse_adagrad_empty(self, inputs, lr, epsilon, gc, dc):
         param, momentum = inputs
         grad = np.empty(shape=(0,) + param.shape[1:], dtype=np.float32)

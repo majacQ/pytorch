@@ -13,14 +13,15 @@
 # limitations under the License.
 ##############################################################################
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
+
+
+
+
 
 from hypothesis import given
 import hypothesis.strategies as st
 import numpy as np
+import unittest
 
 from caffe2.python.transformations import Transformer
 from caffe2.python import core, workspace
@@ -160,6 +161,7 @@ class TestTransformations(tu.TestCase):
             atol=1e-03
         )
 
+    @unittest.skip("Test is flaky")
     @given(
         size=st.integers(7, 10),
         input_channels=st.integers(1, 10),

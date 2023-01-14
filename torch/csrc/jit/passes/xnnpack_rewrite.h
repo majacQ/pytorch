@@ -2,17 +2,13 @@
 
 #include <torch/csrc/jit/api/module.h>
 #include <torch/csrc/jit/ir/ir.h>
+#include <torch/csrc/jit/passes/mobile_optimizer_type.h>
 
 namespace torch {
 namespace jit {
 
-enum class MobileOptimizerType : int8_t {
-  CONV_BN_FUSION,
-  INSERT_FOLD_PREPACK_OPS,
-  REMOVE_DROPOUT,
-  FUSE_ADD_RELU,
-};
-
+TORCH_API void transformConv1dToConv2d(std::shared_ptr<Graph>& graph);
+TORCH_API void transformConv1dToConv2d(script::Module& module);
 TORCH_API void insertPrePackedOps(std::shared_ptr<Graph>& graph);
 TORCH_API void insertPrePackedOps(script::Module& module);
 TORCH_API void fusePrePackedLinearConvWithClamp(script::Module& module);

@@ -1,247 +1,407 @@
+
 #include <torch/csrc/jit/codegen/cuda/utils.h>
 
-#include <c10/util/Exception.h>
+#include <c10/util/string_view.h>
 
-#include <algorithm>
-#include <ostream>
+#include <cstdlib>
+#include <iostream>
+#include <unordered_map>
 
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 
-/*
- * Functions for printing ATen IR
- */
+namespace {
 
-void printScalar(std::ostream& stream, const Value* const value) {
-  if (value->node()->kind() == prim::Constant) {
-    stream << "Const Scalar: ";
+auto parseDebugDumpOptions() {
+  std::unordered_map<DebugDumpOption, bool> options_map = {
+      {DebugDumpOption::FusionIr, false},
+      {DebugDumpOption::FusionIrMath, false},
+      {DebugDumpOption::FusionIrPresched, false},
+      {DebugDumpOption::KernelIr, false},
+      {DebugDumpOption::ComputeAtMap, false},
+      {DebugDumpOption::CudaKernel, false},
+      {DebugDumpOption::CudaFull, false},
+      {DebugDumpOption::CudaToFile, false},
+      {DebugDumpOption::DebugInfo, false},
+      {DebugDumpOption::LaunchParam, false},
+      {DebugDumpOption::FusionSegments, false},
+      {DebugDumpOption::FusionSegmenterLog, false},
+      {DebugDumpOption::FusionArgs, false},
+      {DebugDumpOption::KernelArgs, false},
+      {DebugDumpOption::EffectiveBandwidth, false},
+      {DebugDumpOption::FusionSegmentsDrawing, false},
+      {DebugDumpOption::PrintPtxasLog, false},
+      {DebugDumpOption::BufferReuseInfo, false},
+      {DebugDumpOption::SchedulerDebug, false},
+      {DebugDumpOption::ParallelDimensions, false},
+      {DebugDumpOption::Halo, false},
+      {DebugDumpOption::PerfDebugVerbose, false},
+      {DebugDumpOption::PythonDefinition, false},
+      {DebugDumpOption::PythonFrontendDebug, false},
+      {DebugDumpOption::TransformPropagator, false},
+      {DebugDumpOption::Cubin, false},
+      {DebugDumpOption::Ptx, false},
+      {DebugDumpOption::BankConflictInfo, false},
+      {DebugDumpOption::SyncMap, false}};
+
+  if (const char* dump_options = std::getenv("PYTORCH_NVFUSER_DUMP")) {
+    c10::string_view options_view(dump_options);
+    while (!options_view.empty()) {
+      const auto end_pos = options_view.find_first_of(',');
+      const auto token = options_view.substr(0, end_pos);
+      if (token == "fusion_ir") {
+        options_map[DebugDumpOption::FusionIr] = true;
+      } else if (token == "fusion_ir_math") {
+        options_map[DebugDumpOption::FusionIrMath] = true;
+      } else if (token == "fusion_ir_presched") {
+        options_map[DebugDumpOption::FusionIrPresched] = true;
+      } else if (token == "kernel_ir") {
+        options_map[DebugDumpOption::KernelIr] = true;
+      } else if (token == "ca_map") {
+        options_map[DebugDumpOption::ComputeAtMap] = true;
+      } else if (token == "cuda_kernel") {
+        options_map[DebugDumpOption::CudaKernel] = true;
+      } else if (token == "cuda_full") {
+        options_map[DebugDumpOption::CudaFull] = true;
+      } else if (token == "cuda_to_file") {
+        options_map[DebugDumpOption::CudaToFile] = true;
+      } else if (token == "debug_info") {
+        options_map[DebugDumpOption::DebugInfo] = true;
+      } else if (token == "launch_param") {
+        options_map[DebugDumpOption::LaunchParam] = true;
+      } else if (token == "segmented_fusion") {
+        options_map[DebugDumpOption::FusionSegments] = true;
+      } else if (token == "segmenter_logging") {
+        options_map[DebugDumpOption::FusionSegmenterLog] = true;
+      } else if (token == "fusion_args") {
+        options_map[DebugDumpOption::FusionArgs] = true;
+      } else if (token == "kernel_args") {
+        options_map[DebugDumpOption::KernelArgs] = true;
+      } else if (token == "dump_eff_bandwidth") {
+        options_map[DebugDumpOption::EffectiveBandwidth] = true;
+      } else if (token == "draw_segmented_fusion") {
+        options_map[DebugDumpOption::FusionSegmentsDrawing] = true;
+      } else if (token == "ptxas_verbose") {
+        options_map[DebugDumpOption::PrintPtxasLog] = true;
+      } else if (token == "buffer_reuse_verbose") {
+        options_map[DebugDumpOption::BufferReuseInfo] = true;
+      } else if (token == "scheduler_params") {
+        options_map[DebugDumpOption::SchedulerDebug] = true;
+      } else if (token == "parallel_dimensions") {
+        options_map[DebugDumpOption::ParallelDimensions] = true;
+      } else if (token == "halo") {
+        options_map[DebugDumpOption::Halo] = true;
+      } else if (token == "perf_debug_verbose") {
+        options_map[DebugDumpOption::PerfDebugVerbose] = true;
+      } else if (token == "python_definition") {
+        options_map[DebugDumpOption::PythonDefinition] = true;
+      } else if (token == "python_frontend_debug") {
+        options_map[DebugDumpOption::PythonFrontendDebug] = true;
+      } else if (token == "transform_propagator") {
+        options_map[DebugDumpOption::TransformPropagator] = true;
+      } else if (token == "cubin") {
+        options_map[DebugDumpOption::Cubin] = true;
+      } else if (token == "ptx") {
+        options_map[DebugDumpOption::Ptx] = true;
+      } else if (token == "bank_conflict") {
+        options_map[DebugDumpOption::BankConflictInfo] = true;
+      } else if (token == "sync_map") {
+        options_map[DebugDumpOption::SyncMap] = true;
+      } else {
+        TORCH_CHECK(
+            false,
+            "Invalid debug dump option: '",
+            token,
+            "'\nAvailable options:\n",
+            "\tfusion_ir, fusion_ir_math, fusion_ir_presched, kernel_ir, ca_map,\n",
+            "\tcuda_kernel, cuda_full, cuda_to_file, debug_info, launch_param,\n",
+            "\tsegmented_fusion, fusion_args, kernel_args, dump_eff_bandwidth,\n",
+            "\tdraw_segmented_fusion, scheduler_params, parallel_dimensions,\n",
+            "\tbuffer_reuse_verbose, ptxas_verbose, halo, segmenter_logging,\n",
+            "\tperf_debug_verbose, python_definition, python_frontend_debug,\n",
+            "\ttransform_propagator, cubin, ptx, bank_conflict, sync_map\n");
+      }
+      options_view = (end_pos != c10::string_view::npos)
+          ? options_view.substr(end_pos + 1)
+          : "";
+    }
+  }
+
+  return options_map;
+}
+
+auto parseDisableOptions() {
+  std::unordered_map<DisableOption, bool> options_map = {
+      {DisableOption::ArchCheck, false},
+      {DisableOption::CompileToSass, false},
+      {DisableOption::Fallback, false},
+      {DisableOption::Fma, false},
+      {DisableOption::IndexHoist, false},
+      {DisableOption::Nvtx, false},
+      {DisableOption::PredicateElimination, false}};
+
+  if (const char* dump_options = std::getenv("PYTORCH_NVFUSER_DISABLE")) {
+    c10::string_view options_view(dump_options);
+    while (!options_view.empty()) {
+      const auto end_pos = options_view.find_first_of(',');
+      const auto token = options_view.substr(0, end_pos);
+      if (token == "arch_check") {
+        options_map[DisableOption::ArchCheck] = true;
+      } else if (token == "compile_to_sass") {
+        options_map[DisableOption::CompileToSass] = true;
+      } else if (token == "fallback") {
+        options_map[DisableOption::Fallback] = true;
+      } else if (token == "fma") {
+        TORCH_WARN(
+            "fmad is disabled for nvrtc, which could negatively affect performance. Try removing `fma` from env variable PYTORCH_NVFUSER_DISABLE for optimal performance.");
+        options_map[DisableOption::Fma] = true;
+      } else if (token == "index_hoist") {
+        options_map[DisableOption::IndexHoist] = true;
+      } else if (token == "nvtx") {
+        options_map[DisableOption::Nvtx] = true;
+      } else if (token == "predicate_elimination") {
+        options_map[DisableOption::PredicateElimination] = true;
+      } else {
+        TORCH_CHECK(
+            false,
+            "Invalid disable option: '",
+            token,
+            "'\nAvailable options:\n",
+            "\tarch_check, fallback, fma, index_hoist, nvtx, predicate_elimination\n");
+      }
+      options_view = (end_pos != c10::string_view::npos)
+          ? options_view.substr(end_pos + 1)
+          : "";
+    }
+  }
+
+  return options_map;
+}
+
+auto parseEnableOptions() {
+  std::unordered_map<EnableOption, bool> options_map = {
+      {EnableOption::Complex, false},
+      {EnableOption::KernelProfile, false},
+      {EnableOption::LinearDecomposition, false},
+      {EnableOption::ConvDecomposition, false}};
+
+  if (const char* dump_options = std::getenv("PYTORCH_NVFUSER_ENABLE")) {
+    c10::string_view options_view(dump_options);
+    while (!options_view.empty()) {
+      const auto end_pos = options_view.find_first_of(',');
+      const auto token = options_view.substr(0, end_pos);
+      if (token == "complex") {
+        options_map[EnableOption::Complex] = true;
+      } else if (token == "kernel_profile") {
+        options_map[EnableOption::KernelProfile] = true;
+      } else if (token == "linear_decomposition") {
+        options_map[EnableOption::LinearDecomposition] = true;
+      } else if (token == "conv_decomposition") {
+        options_map[EnableOption::ConvDecomposition] = true;
+      } else {
+        TORCH_CHECK(
+            false,
+            "Invalid enable option: '",
+            token,
+            "'\nAvailable options:\n",
+            "\tcomplex, kernel_profile, linear_decomposition,",
+            "conv_decomposition");
+      }
+      options_view = (end_pos != c10::string_view::npos)
+          ? options_view.substr(end_pos + 1)
+          : "";
+    }
+  }
+
+  return options_map;
+}
+
+} // namespace
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-function"
+void debugPrint(const c10::TensorTypePtr& type) {
+  std::stringstream sizes_s;
+  if (auto sizes = type->symbolic_sizes().sizes()) {
+    for (const auto& shape_symbol : *sizes) {
+      if (shape_symbol.is_static()) {
+        sizes_s << shape_symbol.static_size() << ", ";
+      } else {
+        sizes_s << "s(" << *reinterpret_cast<const int64_t*>(&shape_symbol)
+                << "), ";
+      }
+    }
   } else {
-    stream << "Scalar: ";
+    sizes_s << "no size available";
   }
+  std::cout << "sizes:" << sizes_s.str() << std::endl;
+  if (const auto& stride_properties = type->stride_properties().sizes()) {
+    std::stringstream stride_s;
+    std::stringstream index_s;
+    std::stringstream contig_s;
 
-  if (value->type() == FloatType::get()) {
-    stream << "float ";
-    const float val = value->node()->f(attr::value);
-    stream << val;
-  } else if (value->type() == IntType::get()) {
-    stream << "int ";
-    const int val = value->node()->i(attr::value);
-    stream << val;
+    for (const auto& stride_property : *stride_properties) {
+      if (stride_property.has_value() && stride_property->stride_.has_value()) {
+        stride_s << *stride_property->stride_ << ", ";
+      } else {
+        stride_s << "?, ";
+      }
+      if (stride_property.has_value() &&
+          stride_property->stride_index_.has_value()) {
+        index_s << *stride_property->stride_index_ << ", ";
+      } else {
+        index_s << "?, ";
+      }
+      if (stride_property.has_value() &&
+          stride_property->contiguous_.has_value()) {
+        contig_s << *stride_property->contiguous_ << ", ";
+      } else {
+        contig_s << "?, ";
+      }
+    }
+    std::cout << "stride: " << stride_s.str() << std::endl;
+    std::cout << "stride index: " << index_s.str() << std::endl;
+    std::cout << "contiguous: " << contig_s.str() << std::endl;
   } else {
-    stream << "unknown";
+    std::cout << "no stride properties available" << std::endl;
   }
-  stream << std::endl;
+}
+#pragma clang diagnostic pop
+
+bool is_zero_dim_tensor(const std::shared_ptr<c10::TensorType>& tensor_type) {
+  return tensor_type && tensor_type->dim().has_value() &&
+      tensor_type->dim().value() == 0;
 }
 
-// Note: innermost dimension is at nDims - 1 (when nDims > 0)
-void printStrides(
-    std::ostream& stream,
-    const c10::VaryingShape<int64_t>& strides) {
-  stream << "Strides=(";
-  for (size_t i = 0; i < *(strides.size()); ++i) {
-    stream << *(strides[i]);
-    if (i != *(strides.size()) - 1) {
-      stream << ", ";
-    } else {
-      stream << ")";
+bool is_zero_sized_tensor(const std::shared_ptr<c10::TensorType>& tensor_type) {
+  auto opt_sizes = tensor_type->sizes().concrete_sizes();
+  if (opt_sizes.has_value()) {
+    auto sizes = opt_sizes.value();
+    for (const auto& size : sizes) {
+      if (size == 0) {
+        return true;
+      }
     }
   }
+  return false;
 }
 
-void printSizes(std::ostream& stream, const c10::VaryingShape<int64_t>& sizes) {
-  stream << "Sizes=(";
-  for (size_t i = 0; i < *(sizes.size()); ++i) {
-    stream << *(sizes[i]);
-    if (i != *(sizes.size()) - 1) {
-      stream << ", ";
-    } else {
-      stream << ")";
+bool is_cpu_scalar(const at::Tensor& tensor) {
+  return tensor.device().is_cpu() && tensor.numel() == 1 && tensor.dim() == 0;
+}
+
+bool is_cpu_scalar(const c10::TensorType& tensor_type) {
+  auto opt_device = tensor_type.device();
+  auto opt_dim = tensor_type.dim();
+  auto opt_numel = tensor_type.numel();
+  return opt_device.has_value() && opt_device->is_cpu() &&
+      opt_dim.has_value() && opt_numel.has_value() && opt_dim.value() == 0 &&
+      opt_numel.value() == 1;
+}
+
+// Check device of TensorType in all inputs ensure all tensors are on cuda
+// devices.
+// return common device index (or -1 if device differs).
+int getCommonDeviceCUDA(const at::ArrayRef<IValue>& inputs) {
+  int index = -1;
+  for (const auto& input : inputs) {
+    if (!input.isTensor()) {
+      continue;
+    }
+    const auto& device = input.toTensor().device();
+    // skip cpu scalar tensor as they'll be promoted to scalar later
+    if (device.is_cpu() && is_cpu_scalar(input.toTensor())) {
+      continue;
+    }
+    TORCH_CHECK(device.is_cuda(), "nvfuser only supports cuda device");
+    auto cur_index = device.index();
+    if (index != -1 && index != cur_index) {
+      return -1;
+    }
+    index = (int)cur_index; // NOLINT
+  }
+  return index;
+}
+
+KernelIndexMode collectIndexMode(const at::ArrayRef<at::IValue>& inputs) {
+  // Save 1 more bit besides the sign bit to be conservative
+  constexpr int64_t most_positive_int32_index =
+      std::numeric_limits<int>::max() / 2;
+  constexpr int64_t most_negative_int32_index =
+      std::numeric_limits<int>::min() / 2;
+
+  // Check all runtime inputs, and if any one of
+  //  the input's index exceeds max_int32 will
+  //  fall back to int64 indexing
+  for (auto ivalue_input : inputs) {
+    if (ivalue_input.isTensor()) {
+      auto tensor_input = ivalue_input.toTensor();
+      int64_t tensor_most_positive_index = 0;
+      int64_t tensor_most_negative_index = 0;
+      for (auto dim_i = 0; dim_i < tensor_input.ndimension(); dim_i++) {
+        // Ignore broadcast dimensions
+        if (tensor_input.size(dim_i) > 1) {
+          // accumulate based on the sign of stride
+          if (tensor_input.stride(dim_i) > 0) {
+            // Acuumulate positive stride
+            tensor_most_positive_index +=
+                (tensor_input.size(dim_i) - 1) * tensor_input.stride(dim_i);
+          } else {
+            // Acuumulate negative stride
+            tensor_most_negative_index +=
+                (tensor_input.size(dim_i) - 1) * tensor_input.stride(dim_i);
+          }
+        }
+      }
+
+      // Fall back to int64 if it can be either too positive
+      //  or too negative.
+      if (tensor_most_positive_index > most_positive_int32_index ||
+          tensor_most_negative_index < most_negative_int32_index) {
+        return KernelIndexMode::INT64;
+      }
     }
   }
+  // return index mode as int32
+  return KernelIndexMode::INT32;
 }
 
-void printCompleteTensor(
-    std::ostream& stream,
-    const std::shared_ptr<c10::TensorType>& tensor) {
-  stream << "Complete Tensor: ";
-  stream << *(tensor->device()) << " ";
-  stream << *(tensor->scalarType()) << " ";
-  stream << "nDims: " << *(tensor->dim()) << " ";
-  stream << std::endl;
-  printSizes(stream, tensor->sizes());
-  stream << ", ";
-  printStrides(stream, tensor->strides());
-  stream << std::endl;
+bool isDebugDumpEnabled(DebugDumpOption option) {
+  const static auto dump_options = parseDebugDumpOptions();
+  return dump_options.at(option);
 }
 
-void printValue(std::ostream& stream, const Value* const value) {
-  if (value->isCompleteTensor()) {
-    printCompleteTensor(stream, value->type()->expect<TensorType>());
-  } else if (value->type()->isSubtypeOf(NumberType::get())) {
-    printScalar(stream, value);
-  } else {
-    stream << "Request to print unknown value" << std::endl;
-  }
+bool isOptionDisabled(DisableOption option) {
+  const static auto options = parseDisableOptions();
+  return options.at(option);
 }
 
-/*
- * Functions for acquiring devices and device types from ATen IR nodes
- */
-
-c10::Device getFusionDevice(const Node* const fusion) {
-  const std::shared_ptr<c10::TensorType> out_tensor =
-      fusion->outputs()[0]->type()->expect<TensorType>();
-  return *(out_tensor->device());
+bool isOptionEnabled(EnableOption option) {
+  const static auto options = parseEnableOptions();
+  return options.at(option);
 }
 
-c10::DeviceType getFusionDeviceType(const Node* const node) {
-  return getFusionDevice(node).type();
+bool useFallback() {
+  // Keep this env var for compatibility
+  const char* disable_fb_env = getenv("PYTORCH_NVFUSER_DISABLE_FALLBACK");
+  bool fallback_disabled = disable_fb_env ? atoi(disable_fb_env) : false;
+  fallback_disabled =
+      fallback_disabled || isOptionDisabled(DisableOption::Fallback);
+
+  return !fallback_disabled;
 }
 
-/*
- * Functions for obtaining parts of complete tensors
- */
-
-std::vector<int64_t> extractStrides(
-    const std::shared_ptr<c10::TensorType>& tensor) {
-  const c10::VaryingShape<int64_t>& strides = tensor->strides();
-  const auto size = *(strides.size());
-  std::vector<int64_t> extracted_strides;
-
-  for (auto i = decltype(size){0}; i < size; ++i) {
-    extracted_strides.push_back(*(strides[i]));
-  }
-
-  return extracted_strides;
+std::vector<int64_t> getTensorSizes(TensorTypePtr const& tensor_type) {
+  TORCH_INTERNAL_ASSERT(tensor_type != nullptr, "Input must be a Tensor.");
+  auto optional_sizes = tensor_type->sizes().concrete_sizes();
+  TORCH_INTERNAL_ASSERT(
+      optional_sizes.has_value(), "Missing size information for the tensor.");
+  return optional_sizes.value();
 }
 
-std::vector<int64_t> extractSizes(
-    const std::shared_ptr<c10::TensorType>& tensor) {
-  const c10::VaryingShape<int64_t>& sizes = tensor->sizes();
-  const auto size = *(sizes.size());
-  std::vector<int64_t> extracted_sizes;
-
-  for (auto i = decltype(size){0}; i < size; ++i) {
-    extracted_sizes.push_back(*(sizes[i]));
-  }
-
-  return extracted_sizes;
-}
-
-c10::DeviceType getDeviceType(const std::shared_ptr<c10::TensorType>& tensor) {
-  return (*(tensor->device())).type();
-}
-
-size_t getRank(const std::shared_ptr<c10::TensorType>& tensor) {
-  return *(tensor->dim());
-}
-
-size_t getNumel(const std::shared_ptr<c10::TensorType>& tensor) {
-  return *(tensor->numel());
-}
-
-/*
- * Functions for working with scalar Values
- */
-
-bool isScalar(const Value* const value) {
-  return value->type()->isSubtypeOf(NumberType::get());
-}
-
-c10::optional<float> getFloat(const Value* const value) {
-  if (value->type() == FloatType::get()) {
-    return value->node()->f(attr::value);
-  }
-
-  return c10::nullopt;
-}
-
-c10::optional<int> getInt(const Value* const value) {
-  if (value->type() == IntType::get()) {
-    return value->node()->i(attr::value);
-  }
-
-  return c10::nullopt;
-}
-
-float getAsFloat(const Value* const value) {
-  if (value->type() == FloatType::get()) {
-    return value->node()->f(attr::value);
-  }
-  if (value->type() == IntType::get()) {
-    return static_cast<float>(value->node()->i(attr::value));
-  }
-
-  TORCH_CHECK(false, "getAsFloat() found unknown scalar type!");
-}
-
-/*
- * Functions for comparing complete tensors
- */
-
-bool haveSameDevice(
-    const std::shared_ptr<c10::TensorType>& lhs,
-    const std::shared_ptr<c10::TensorType>& rhs) {
-  const auto lhs_device = *(lhs->device());
-  const auto rhs_device = *(rhs->device());
-  return (lhs_device == rhs_device);
-}
-
-bool haveSameScalarType(
-    const std::shared_ptr<c10::TensorType>& lhs,
-    const std::shared_ptr<c10::TensorType>& rhs) {
-  const auto lhs_scalar_type = *(lhs->scalarType());
-  const auto rhs_scalar_type = *(rhs->scalarType());
-  return (lhs_scalar_type == rhs_scalar_type);
-}
-
-bool haveSameSizes(
-    const std::shared_ptr<c10::TensorType>& lhs,
-    const std::shared_ptr<c10::TensorType>& rhs) {
-  const auto& lhs_sizes = lhs->sizes();
-  const auto& rhs_sizes = rhs->sizes();
-
-  if (*(lhs_sizes.size()) != *(rhs_sizes.size())) {
-    return false;
-  }
-
-  for (size_t i = 0; i < *(lhs_sizes.size()); ++i) {
-    if (*(lhs_sizes[i]) != *(rhs_sizes[i])) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-bool haveSameStrides(
-    const std::shared_ptr<c10::TensorType>& lhs,
-    const std::shared_ptr<c10::TensorType>& rhs) {
-  const auto& lhs_strides = lhs->strides();
-  const auto& strides = rhs->strides();
-
-  if (*(lhs_strides.size()) != *(strides.size())) {
-    return false;
-  }
-
-  for (size_t i = 0; i < *(lhs_strides.size()); ++i) {
-    if (*(lhs_strides[i]) != *(strides[i])) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-bool haveSameShape(
-    const std::shared_ptr<c10::TensorType>& lhs,
-    const std::shared_ptr<c10::TensorType>& rhs) {
-  return (
-      haveSameDevice(lhs, rhs) && haveSameScalarType(lhs, rhs) &&
-      haveSameSizes(lhs, rhs) && haveSameStrides(lhs, rhs));
-}
-
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

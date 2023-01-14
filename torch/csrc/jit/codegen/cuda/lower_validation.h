@@ -1,45 +1,76 @@
 #pragma once
 
-#include <torch/csrc/WindowsTorchApiMacro.h>
+#include <c10/macros/Export.h>
 
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 
-/*
- * Currently this does the following:
- *
- * (1) Run a validation pass on the IR making sure there are no mistakes or
- * unsupported scheduling.
- *
- * (2) Creates a mapping for symbolic sizes to named scalars
- *     i.e. T0[i0] -> T0[T0.size[0]]
- *
- * (3) Change computeAt structure to make sure computeAt structure follows the
- * expression structure.
- *
- * (4) Adjust TensorView memory types to make sure they are valid
- */
+class ContigIDs;
 
-void TORCH_CUDA_API PrepareForLowering(Fusion* fusion);
+void validateIr(Fusion* fusion);
 
-// Compute at can have some circular references. Before we can call any tv
-// with tv->getComputeAtAxis(i) we need to break those circular dependencies.
-void IrFixComputeAt(Fusion* fusion);
+//! Validate vectorization and collect information on vectorization
+//! used in code generation as well as runtime validation.
+void validateAndCollectVectorizeInfo(Fusion* fusion);
 
-// TensorViews are all based on symbolic sizes. When we first initialize them we
-// don't know if they're inputs or outputs which would mean that they have
-// runtime shapes. Intermediate tensors (those not going to global memory) do
-// not have this information. Since we need to have the correct information in
-// the kernel being fetched for shapes, we want to replace input and output
-// tensors to reference the runtime structure containing sizes.
-void IrBuildSizesMap(Fusion* fusion);
+//! Find the contig root domains that a vectorized leaf domain
+//! of a consumer TV depends on. Required for runtime validation.
+void fillConsumerVectorizedContigRootDomains(
+    const TensorView* consumer_tv,
+    const ContigIDs& contig_finder);
 
-// Adjust memory types to make sure they are valid
-void IrAdjustMemoryTypes(Fusion* fusion);
+//! Find the contig root domains that a vectorized leaf domain
+//! of a producer TV depends on. Required for runtime validation.
+//! Producer must be transformed as consumer.
+void fillProducerVectorizedContigRootDomains(
+    const TensorView* producer_tv,
+    const TensorView* consumer_tv,
+    const std::unordered_map<IterDomain*, IterDomain*>& c2p_map,
+    const ContigIDs& contig_finder);
 
+//! Validates partial split expressions. Partial split only uses an
+//! inner subdomain specified by start and stop offsets, ignoring the
+//! values outside the range. It's designed to be used with non-padded
+//! shift, which introduces non-zero start and stop smaller than the
+//! extent. This function makes sure all tensors have all values
+//! calculated that are necessary for output values.
+void validatePartialSplit(Fusion* fusion);
+
+//! Validate data format and GPU arch compatibility of scheduled
+//!  mma operators on the fusion.
+void validateMma(Fusion* fusion);
+
+//! Validates swizzle ops to ensure consistent indexing:
+//!   - Currently only allow swizzle ops on the right of CA axis,
+//!   - (Except ZShape) All swizzle ops have to be on const sized ids
+//!   - Xor and Transpose swizzle have to have equal dimensions on the
+//!       participating ids.
+void validateSwizzle(Fusion* fusion);
+
+//! Validate use of ParallelType::Group. It is currently only allowed
+//! in ReductionOp and not in WelfordOp. Group has similar constraints
+//! as Vectorize, e.g., it can only be used with IterDomains with
+//! static extents. Differences are, e.g, it has no constraints on
+//! alignments and predicates. Each individual reduction has its own
+//! predicate, so it is possile for only part of grouped reductions to
+//! be executed.
+//!
+//! Also, grouping is only enabled for persistent grid reductions, in
+//! other words, grid allreduces. Note that no grid reduction without
+//! broadcast is persistent anymore.
+//!
+//! Validated ReductionOp with ParallelType::Group is converted to
+//! GroupedReductionOp.
+void validateAndConvertIterDomainGrouping(Fusion* fusion);
+
+//! Validate the number of grouped reductions is within the limit
+void validateGroupedReductions(Fusion* fusion);
+
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

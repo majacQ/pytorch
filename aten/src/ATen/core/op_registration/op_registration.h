@@ -6,8 +6,11 @@
  */
 
 #include <c10/core/DispatchKey.h>
+#include <c10/core/DispatchKeySet.h>
 #include <c10/core/CompileTimeFunctionPointer.h>
-#include <ATen/core/dispatch/Dispatcher.h>
+#include <ATen/core/boxing/KernelFunction.h>
+#include <ATen/core/dispatch/CppSignature.h>
+#include <ATen/core/dispatch/RegistrationHandleRAII.h>
 #include <ATen/core/op_registration/infer_schema.h>
 #if defined(EXPOSE_C2_OPS) || !defined(CAFFE2_IS_XPLAT_BUILD)
 #include <torch/csrc/jit/frontend/function_schema_parser.h>
@@ -17,10 +20,14 @@
 namespace c10 {
 
 namespace detail {
+// The first argument of the schema might be of type DispatchKeySet, in which case we remove it.
+// We do this because every argument in a function schema is expected to be convertable
+// to an ivalue, but DispatchKeySet is not a type we want the jit to be aware of.
+// See Note [Plumbing Keys Through The Dispatcher]
 template<class KernelFunctor>
 std::unique_ptr<FunctionSchema> inferFunctionSchemaFromFunctor() {
-  using func_type = typename c10::guts::infer_function_traits_t<KernelFunctor>::func_type;
-  return std::make_unique<FunctionSchema>(inferFunctionSchemaFlattenedReturns<func_type>("", ""));
+  using func_type = typename c10::remove_DispatchKeySet_arg_from_func<KernelFunctor>::func_type;
+  return std::make_unique<FunctionSchema>(inferFunctionSchemaFlattenedReturns<func_type>());
 }
 }
 
@@ -43,7 +50,7 @@ std::unique_ptr<FunctionSchema> inferFunctionSchemaFromFunctor() {
  * >         .schema("my_op")
  * >         .kernel<my_kernel_cpu>(DispatchKey::CPU));
  */
-class CAFFE2_API RegisterOperators final {
+class TORCH_API RegisterOperators final {
 public:
   RegisterOperators();
   ~RegisterOperators();
@@ -53,7 +60,7 @@ public:
   RegisterOperators(RegisterOperators&&) noexcept;
   RegisterOperators& operator=(RegisterOperators&&) noexcept;
 
-  class CAFFE2_API Options final {
+  class TORCH_API Options final {
   public:
     Options(const Options&) = delete;
     Options(Options&&) noexcept = delete;
@@ -237,7 +244,7 @@ public:
 
       return std::move(*this).kernel(
         std::move(dispatch_key),
-        KernelFunction::makeFromUnboxedFunction(CompileTimeFunctionPointer<FuncType, kernel_func>()),
+        KernelFunction::makeFromUnboxedFunction(TORCH_FN(kernel_func)),
         impl::CppSignature::make<FuncType>(),
         // TODO Do schema inference without relying on WrapFunctionIntoFunctor
         detail::inferFunctionSchemaFromFunctor<typename impl::WrapFunctionIntoFunctor<CompileTimeFunctionPointer<FuncType, kernel_func>>::type>()
@@ -300,36 +307,6 @@ public:
         impl::CppSignature::make<FuncType>(),
         // TODO Do schema inference without relying on WrapFunctionIntoFunctor
         detail::inferFunctionSchemaFromFunctor<impl::WrapFunctionIntoRuntimeFunctor<std::decay_t<FuncType>>>()
-      );
-    }
-
-    // TODO Remove impl_unboxedOnlyKernel once all of aten can generate boxed kernels
-    template<class FuncType, FuncType* kernel_func>
-    // enable_if: only enable it if FuncType is actually a function
-    std::enable_if_t<guts::is_function_type<FuncType>::value, Options&&> impl_unboxedOnlyKernel(DispatchKey dispatch_key) && {
-      static_assert(!std::is_same<FuncType, KernelFunction::BoxedKernelFunction>::value, "Tried to register a stackbased (i.e. internal) kernel function using the public kernel<...>() API. Please either use the internal kernel(...) API or also implement the kernel function as defined by the public API.");
-      static_assert(kernel_func != nullptr, "Kernel function cannot be nullptr");
-
-      return std::move(*this).kernel(
-        std::move(dispatch_key),
-        KernelFunction::makeFromUnboxedOnlyRuntimeFunction(kernel_func),
-        impl::CppSignature::make<FuncType>(),
-        nullptr // disable function schema inference because some ops from native_functions.yaml don't support it yet
-      );
-    }
-
-    // TODO Remove impl_unboxedOnlyCatchAllKernel once all of aten can generate boxed kernels
-    template<class FuncType, FuncType* kernel_func>
-    // enable_if: only enable it if FuncType is actually a function
-    std::enable_if_t<guts::is_function_type<FuncType>::value, Options&&> impl_unboxedOnlyCatchAllKernel() && {
-      static_assert(!std::is_same<FuncType, KernelFunction::BoxedKernelFunction>::value, "Tried to register a stackbased (i.e. internal) kernel function using the public kernel<...>() API. Please either use the internal kernel(...) API or also implement the kernel function as defined by the public API.");
-      static_assert(kernel_func != nullptr, "Kernel function cannot be nullptr");
-
-      return std::move(*this).kernel(
-        c10::nullopt,
-        KernelFunction::makeFromUnboxedOnlyRuntimeFunction(kernel_func),
-        impl::CppSignature::make<FuncType>(),
-        nullptr // disable function schema inference because some ops from native_functions.yaml don't support it yet
       );
     }
 

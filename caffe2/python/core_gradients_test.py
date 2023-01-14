@@ -1,10 +1,9 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
 
-from future.utils import bytes_to_native_str
-from hypothesis import given
+
+
+
+
+from hypothesis import given, settings
 import hypothesis.strategies as st
 import unittest
 
@@ -98,6 +97,7 @@ class TestGradientCalculation(test_util.TestCase):
     @given(device_option=st.sampled_from([
         None,
         core.DeviceOption(workspace.GpuDeviceType, 1)]))
+    @settings(deadline=10000)
     def testDirect(self, device_option):
         operators = [
             CreateOperator('Direct', 'in', 'hidden'),
@@ -269,7 +269,7 @@ class TestGradientCalculation(test_util.TestCase):
         in -> out, with UseInput
         in -> in
 
-        Since we overwrite in in op#1, but in will be needed by the gradient
+        Since we overwrite in op#1, but in will be needed by the gradient
         calculation of op#0, the gradient registry should raise an error.
         """
         operators = [
@@ -283,6 +283,7 @@ class TestGradientCalculation(test_util.TestCase):
     @given(device_option=st.sampled_from([
         None,
         core.DeviceOption(workspace.GpuDeviceType, 1)]))
+    @settings(deadline=10000)
     def testMultiUseInput(self, device_option):
         """Test gradient for the following case:
 

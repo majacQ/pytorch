@@ -1,14 +1,14 @@
 .. _amp-examples:
 
-Automatic Mixed Precision examples
-==================================
+CUDA Automatic Mixed Precision examples
+=======================================
 
 .. currentmodule:: torch.cuda.amp
 
 Ordinarily, "automatic mixed precision training" means training with
-:class:`torch.cuda.amp.autocast` and :class:`torch.cuda.amp.GradScaler` together.
+:class:`torch.autocast` and :class:`torch.cuda.amp.GradScaler` together.
 
-Instances of :class:`torch.cuda.amp.autocast` enable autocasting for chosen regions.
+Instances of :class:`torch.autocast` enable autocasting for chosen regions.
 Autocasting automatically chooses the precision for GPU operations to improve performance
 while maintaining accuracy.
 
@@ -16,8 +16,12 @@ Instances of :class:`torch.cuda.amp.GradScaler` help perform the steps of
 gradient scaling conveniently.  Gradient scaling improves convergence for networks with ``float16``
 gradients by minimizing gradient underflow, as explained :ref:`here<gradient-scaling>`.
 
-:class:`torch.cuda.amp.autocast` and :class:`torch.cuda.amp.GradScaler` are modular.
+:class:`torch.autocast` and :class:`torch.cuda.amp.GradScaler` are modular.
 In the samples below, each is used as its individual documentation suggests.
+
+(Samples here are illustrative.  See the
+`Automatic Mixed Precision recipe <https://pytorch.org/tutorials/recipes/recipes/amp_recipe.html>`_
+for a runnable walkthrough.)
 
 .. contents:: :local:
 
@@ -38,7 +42,7 @@ Typical Mixed Precision Training
             optimizer.zero_grad()
 
             # Runs the forward pass with autocasting.
-            with autocast():
+            with autocast(device_type='cuda', dtype=torch.float16):
                 output = model(input)
                 loss = loss_fn(output, target)
 
@@ -83,7 +87,7 @@ Calling ``scaler.unscale_(optimizer)`` before clipping enables you to clip unsca
     for epoch in epochs:
         for input, target in data:
             optimizer.zero_grad()
-            with autocast():
+            with autocast(device_type='cuda', dtype=torch.float16):
                 output = model(input)
                 loss = loss_fn(output, target)
             scaler.scale(loss).backward()
@@ -136,7 +140,7 @@ where you called :meth:`step<step>` for a full effective batch::
 
     for epoch in epochs:
         for i, (input, target) in enumerate(data):
-            with autocast():
+            with autocast(device_type='cuda', dtype=torch.float16):
                 output = model(input)
                 loss = loss_fn(output, target)
                 loss = loss / iters_to_accumulate
@@ -169,7 +173,9 @@ Here's an ordinary example of an L2 penalty without gradient scaling or autocast
             loss = loss_fn(output, target)
 
             # Creates gradients
-            grad_params = torch.autograd.grad(loss, model.parameters(), create_graph=True)
+            grad_params = torch.autograd.grad(outputs=loss,
+                                              inputs=model.parameters(),
+                                              create_graph=True)
 
             # Computes the penalty term and adds it to the loss
             grad_norm = 0
@@ -184,8 +190,8 @@ Here's an ordinary example of an L2 penalty without gradient scaling or autocast
 
             optimizer.step()
 
-To implement a gradient penalty *with* gradient scaling, the loss passed to
-:func:`torch.autograd.grad` should be scaled.  The resulting gradients
+To implement a gradient penalty *with* gradient scaling, the ``outputs`` Tensor(s)
+passed to :func:`torch.autograd.grad` should be scaled.  The resulting gradients
 will therefore be scaled, and should be unscaled before being combined to create the
 penalty value.
 
@@ -199,12 +205,14 @@ Here's how that looks for the same L2 penalty::
     for epoch in epochs:
         for input, target in data:
             optimizer.zero_grad()
-            with autocast():
+            with autocast(device_type='cuda', dtype=torch.float16):
                 output = model(input)
                 loss = loss_fn(output, target)
 
-            # Scales the loss for autograd.grad's backward pass, resulting in scaled grad_params
-            scaled_grad_params = torch.autograd.grad(scaler.scale(loss), model.parameters(), create_graph=True)
+            # Scales the loss for autograd.grad's backward pass, producing scaled_grad_params
+            scaled_grad_params = torch.autograd.grad(outputs=scaler.scale(loss),
+                                                     inputs=model.parameters(),
+                                                     create_graph=True)
 
             # Creates unscaled grad_params before computing the penalty. scaled_grad_params are
             # not owned by any optimizer, so ordinary division is used instead of scaler.unscale_:
@@ -212,7 +220,7 @@ Here's how that looks for the same L2 penalty::
             grad_params = [p * inv_scale for p in scaled_grad_params]
 
             # Computes the penalty term and adds it to the loss
-            with autocast():
+            with autocast(device_type='cuda', dtype=torch.float16):
                 grad_norm = 0
                 for grad in grad_params:
                     grad_norm += grad.pow(2).sum()
@@ -248,7 +256,7 @@ after all optimizers used this iteration have been stepped::
         for input, target in data:
             optimizer0.zero_grad()
             optimizer1.zero_grad()
-            with autocast():
+            with autocast(device_type='cuda', dtype=torch.float16):
                 output0 = model0(input)
                 output1 = model1(input)
                 loss0 = loss_fn(2 * output0 + 3 * output1, target)
@@ -288,42 +296,17 @@ The issues described here only affect :class:`autocast`.  :class:`GradScaler`\ '
 DataParallel in a single process
 --------------------------------
 
-:class:`torch.nn.DataParallel` spawns threads to run the forward pass on each device.
-The autocast state is thread local, so the following will not work::
+Even if :class:`torch.nn.DataParallel` spawns threads to run the forward pass on each device.
+The autocast state is propagated in each one and the following will work::
 
     model = MyModel()
     dp_model = nn.DataParallel(model)
 
     # Sets autocast in the main thread
-    with autocast():
-        # dp_model's internal threads won't autocast.  The main thread's autocast state has no effect.
+    with autocast(device_type='cuda', dtype=torch.float16):
+        # dp_model's internal threads will autocast.
         output = dp_model(input)
-        # loss_fn still autocasts, but it's too late...
-        loss = loss_fn(output)
-
-The fix is simple.  Enable autocast as part of ``MyModel.forward``::
-
-    MyModel(nn.Module):
-        ...
-        @autocast()
-        def forward(self, input):
-           ...
-
-    # Alternatively
-    MyModel(nn.Module):
-        ...
-        def forward(self, input):
-            with autocast():
-                ...
-
-The following now autocasts in ``dp_model``'s threads (which execute ``forward``) and the main thread
-(which executes ``loss_fn``)::
-
-    model = MyModel()
-    dp_model = nn.DataParallel(model)
-
-    with autocast():
-        output = dp_model(input)
+        # loss_fn also autocast
         loss = loss_fn(output)
 
 DistributedDataParallel, one GPU per process
@@ -358,9 +341,9 @@ autocast compatibility if any function
 In all cases, if you're importing the function and can't alter its definition, a safe fallback
 is to disable autocast and force execution in ``float32`` ( or ``dtype``) at any points of use where errors occur::
 
-    with autocast():
+    with autocast(device_type='cuda', dtype=torch.float16):
         ...
-        with autocast(enabled=False):
+        with autocast(device_type='cuda', dtype=torch.float16, enabled=False):
             output = imported_function(input1.float(), input2.float())
 
 If you're the function's author (or can alter its definition) a better solution is to use the
@@ -390,7 +373,7 @@ Now ``MyMM`` can be invoked anywhere, without disabling autocast or manually cas
 
     mymm = MyMM.apply
 
-    with autocast():
+    with autocast(device_type='cuda', dtype=torch.float16):
         output = mymm(input1, input2)
 
 Functions that need a particular ``dtype``
@@ -418,6 +401,6 @@ Now ``MyFloat32Func`` can be invoked anywhere, without manually disabling autoca
 
     func = MyFloat32Func.apply
 
-    with autocast():
+    with autocast(device_type='cuda', dtype=torch.float16):
         # func will run in float32, regardless of the surrounding autocast state
         output = func(input)

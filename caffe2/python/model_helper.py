@@ -1,9 +1,9 @@
 ## @package model_helper
 # Module caffe2.python.model_helper
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
+
+
+
+
 
 from caffe2.python import core, scope, workspace
 from caffe2.python.helpers.db_input import db_input
@@ -21,7 +21,6 @@ from future.utils import viewitems, viewkeys
 from itertools import chain
 
 import logging
-import six
 
 
 # _known_working_ops are operators that do not need special care.
@@ -199,7 +198,7 @@ class ModelHelper(object):
         # ParameterSharing will be applied.
         if isinstance(param_name, core.BlobReference):
             param_name = str(param_name)
-        elif isinstance(param_name, six.string_types):
+        elif isinstance(param_name, str):
             # Parameter name will be equal to current Namescope that got
             # resolved with the respect of parameter sharing of the scopes.
             param_name = parameter_sharing_context.get_parameter_name(
@@ -541,8 +540,8 @@ def ExtractPredictorNet(
                 'StopGradient'
             ]
         )
-    except ValueError:
-        raise Exception("No ops with input={}".format(input_blobs))
+    except ValueError as e:
+        raise Exception("No ops with input={}".format(input_blobs)) from e
     try:
         last_op_with_output = max(
             [
@@ -550,8 +549,8 @@ def ExtractPredictorNet(
                 if output_blobs.intersection(ops[j].output)
             ]
         )
-    except ValueError:
-        raise Exception("No ops with output={}".format(output_blobs))
+    except ValueError as e:
+        raise Exception("No ops with output={}".format(output_blobs)) from e
 
     def validate_op(op):
         # Check that the op does not have is_test = 0 set. This is a common

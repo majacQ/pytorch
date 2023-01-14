@@ -1,5 +1,3 @@
-from __future__ import absolute_import, division, print_function
-
 import math
 
 import torch
@@ -7,6 +5,8 @@ import torch.jit
 from torch.distributions import constraints
 from torch.distributions.distribution import Distribution
 from torch.distributions.utils import broadcast_all, lazy_property
+
+__all__ = ['VonMises']
 
 
 def _eval_poly(y, coef):
@@ -51,7 +51,7 @@ def _log_modified_bessel_fn(x, order=0):
     return result
 
 
-@torch.jit._script_if_tracing
+@torch.jit.script_if_tracing
 def _rejection_sample(loc, concentration, proposal_r, x):
     done = torch.zeros(x.shape, dtype=torch.bool, device=loc.device)
     while not done.all():
@@ -76,8 +76,9 @@ class VonMises(Distribution):
     interpreted as angles modulo 2 pi.
 
     Example::
-        >>> m = dist.VonMises(torch.tensor([1.0]), torch.tensor([1.0]))
-        >>> m.sample() # von Mises distributed with loc=1 and concentration=1
+        >>> # xdoctest: +IGNORE_WANT("non-deterinistic")
+        >>> m = VonMises(torch.tensor([1.0]), torch.tensor([1.0]))
+        >>> m.sample()  # von Mises distributed with loc=1 and concentration=1
         tensor([1.9777])
 
     :param torch.Tensor loc: an angle in radians.
@@ -100,6 +101,8 @@ class VonMises(Distribution):
         super(VonMises, self).__init__(batch_shape, event_shape, validate_args)
 
     def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
         log_prob = self.concentration * torch.cos(value - self.loc)
         log_prob = log_prob - math.log(2 * math.pi) - _log_modified_bessel_fn(self.concentration, order=0)
         return log_prob
@@ -129,6 +132,10 @@ class VonMises(Distribution):
         """
         The provided mean is the circular one.
         """
+        return self.loc
+
+    @property
+    def mode(self):
         return self.loc
 
     @lazy_property

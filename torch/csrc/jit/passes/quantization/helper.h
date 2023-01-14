@@ -29,6 +29,8 @@ TORCH_API bool isWeight(Value* v);
 // quantize
 TORCH_API bool isBiasOfConvOrLinear(Value* v);
 
+TORCH_API bool isEmbeddingBagNonInput(Value* v);
+
 // Get the use as scalar input of clamp ops for the input value
 c10::optional<Use> getClampScalarInputUse(Value* v);
 
@@ -38,11 +40,23 @@ c10::optional<Use> getClampScalarInputUse(Value* v);
 // the quantization parameters for `v` given the list of values
 TORCH_API std::vector<Value*> getPassThroughInputs(Value* v);
 
+// Clones the method by the name of orig_method_name into new_method_name method
+TORCH_API void cloneMethod(
+    Module& module,
+    const std::string& orig_method_name,
+    const std::string& new_method_name);
+
 // Check if a value in the graph is a Scalar value
 TORCH_API bool isScalar(Value* v);
 
 // Check if value is the input of the graph
 TORCH_API bool hitGraphInput(Value* value);
+
+// Converts a mangled name, such as
+//   __torch__.torch.ao.nn.quantized.modules.conv.___torch_mangle_7.Conv2d
+// into an unmangled name, such as
+//   __torch__.torch.ao.nn.quantized.modules.conv.Conv2d
+TORCH_API std::string removeTorchMangle(const std::string& orig_name);
 
 // Return the module name that corresponds to the value.
 TORCH_API c10::optional<std::string> getModuleName(Value* value);
@@ -92,6 +106,9 @@ TORCH_API bool nodeQuantizable(
     Node* n,
     QuantType quant_type = QuantType::STATIC);
 
+// Nodes which only require quantization of weight value, eg. embedding_bag
+bool isWeightOnlyStaticQuantOp(Node* n);
+
 // Check if a use of the value is quantizable, this depends on
 // both the use node and the offset
 TORCH_API bool useQuantizable(const Use& use, QuantType quant_type);
@@ -102,6 +119,13 @@ TORCH_API std::shared_ptr<Graph> getCallFunctionGraph(Node* n);
 // Check if `use` is a CallFunction of name `func_name` and if value
 // `v` is the nth argument (if provided) of the function
 bool matchCallFuncToUse(
+    const Use& use,
+    const std::string& func_name,
+    c10::optional<int> nth_arg);
+
+// Check if `use` is a AtenFunction of name `func_name` and if value
+// `v` is the nth argument (if provided) of the function
+bool matchAtenFuncToUse(
     const Use& use,
     const std::string& func_name,
     c10::optional<int> nth_arg);
@@ -155,10 +179,6 @@ bool is_relu_module(
     const Match& match,
     const std::unordered_map<std::string, Value*>& vmap);
 
-bool is_functional_linear(
-    const Match& match,
-    const std::unordered_map<std::string, Value*>& vmap);
-
 bool is_linear_module(
     const Match& match,
     const std::unordered_map<std::string, Value*>& vmap);
@@ -173,6 +193,14 @@ bool is_conv2d_module(
     const std::unordered_map<std::string, Value*>& vmap);
 
 bool is_conv3d_module(
+    const Match& match,
+    const std::unordered_map<std::string, Value*>& vmap);
+
+bool is_conv_transpose1d_module(
+    const Match& match,
+    const std::unordered_map<std::string, Value*>& vmap);
+
+bool is_conv_transpose2d_module(
     const Match& match,
     const std::unordered_map<std::string, Value*>& vmap);
 

@@ -1,0 +1,43 @@
+{
+    "HOW TO UPDATE THE BINARIES": [
+        "Upload the new file to S3 under a new folder with the version number embedded in (see actionlint for an example).",
+        "(Don't override the old files, otherwise you'll break `lintrunner install` for anyone using an older commit of pytorch.)",
+        "'Hash' is the sha256 of the uploaded file.",
+        "Validate the new download url and hash by running 'lintrunner init' to pull the new binaries and then run 'lintrunner' to try linting the files.",
+        "Some binaries have custom builds; see https://github.com/pytorch/test-infra/blob/main/.github/workflows/clang-tidy-linux.yml and https://github.com/pytorch/test-infra/blob/main/.github/workflows/clang-tidy-macos.yml"
+    ],
+    "clang-format": {
+        "Darwin": {
+            "download_url": "https://oss-clang-format.s3.us-east-2.amazonaws.com/mac/clang-format-mojave",
+            "hash": "1485a242a96c737ba7cdd9f259114f2201accdb46d87ac7a8650b1a814cd4d4d"
+        },
+        "Linux": {
+            "download_url": "https://oss-clang-format.s3.us-east-2.amazonaws.com/linux64/clang-format-linux64",
+            "hash": "e1c8b97b919541a99e0a355df5c3f9e8abebc64259dbee6f8c68e1ef90582856"
+        }
+    },
+    "clang-tidy": {
+        "Darwin-i386": {
+            "download_url": "https://oss-clang-format.s3.us-east-2.amazonaws.com/macos-i386/11.1.0/clang-tidy",
+            "hash": "00a61e97189d096dc8ff029590fdc38493862993df04980a53a926bdccc80905"
+        },
+        "Darwin-arm": {
+            "download_url": "https://oss-clang-format.s3.us-east-2.amazonaws.com/macos-arm/11.1.0/clang-tidy",
+            "hash": "22b22f5625e030c50fece061fc94bd04d6a884e22859361e5094ef5cf74135f6"
+        },
+        "Linux": {
+            "download_url": "https://oss-clang-format.s3.us-east-2.amazonaws.com/linux64/11.1.0/clang-tidy",
+            "hash": "f0eb93147808e361ea7d42d8868f4feddb53185e878d6cc2a493a4104265d2ee"
+        }
+    },
+    "actionlint": {
+        "Darwin": {
+            "download_url": "https://oss-clang-format.s3.us-east-2.amazonaws.com/actionlint/1.6.21/Darwin_amd64/actionlint",
+            "hash": "b354db83815384d3c3a07f68f44b30cb0a70899757a0d185d7322de9952e8813"
+        },
+        "Linux": {
+            "download_url": "https://oss-clang-format.s3.us-east-2.amazonaws.com/actionlint/1.6.21/Linux_arm64/actionlint",
+            "hash": "025ac157db121b33971ef24af72d73d71cda3cb1e3a94795bb2708ef4032ca76"
+        }
+    }
+}

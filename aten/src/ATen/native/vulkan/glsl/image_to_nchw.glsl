@@ -1,30 +1,52 @@
 #version 450 core
+#define PRECISION $precision
+
 layout(std430) buffer;
-layout(std430) uniform;
-layout(set = 0, binding = 0) uniform highp sampler3D uInput;
-layout(set = 0, binding = 1) writeonly buffer destBuffer {
+
+/*
+ * Input Sampler
+ */
+layout(set = 0, binding = 0) uniform PRECISION sampler3D uImage;
+
+/*
+ * Output Buffer
+ */
+layout(set = 0, binding = 1) buffer PRECISION restrict writeonly Buffer {
   float data[];
 }
-uOutBuffer;
-layout(set = 0, binding = 2) uniform sizeBlock {
-  int width;
-  int height;
-}
-uSizeBlock;
+uBuffer;
 
-layout(local_size_x_id = 1, local_size_y_id = 2, local_size_z_id = 3) in;
+/*
+ * Params Buffer
+ */
+layout(set = 0, binding = 2) uniform PRECISION restrict Block {
+  // xyz contain the extents of the input texture, w contains HxW to help
+  // calculate buffer offsets
+  ivec4 in_extents;
+}
+uBlock;
+
+/*
+ * Local Work Group Size
+ */
+layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
 
 void main() {
-  ivec3 pos = ivec3(gl_GlobalInvocationID);
-  int W = uSizeBlock.width;
-  int H = uSizeBlock.height;
-  int WH = W * H;
-  if (pos.x < W && pos.y < H) {
-    vec4 color = texelFetch(uInput, pos, 0);
-    int z = pos.z * 4;
-    uOutBuffer.data[W * pos.y + pos.x + (z + 0) * WH] = color.r;
-    uOutBuffer.data[W * pos.y + pos.x + (z + 1) * WH] = color.g;
-    uOutBuffer.data[W * pos.y + pos.x + (z + 2) * WH] = color.b;
-    uOutBuffer.data[W * pos.y + pos.x + (z + 3) * WH] = color.a;
+  const ivec3 pos = ivec3(gl_GlobalInvocationID);
+
+  if (any(greaterThanEqual(pos, uBlock.in_extents.xyz))) {
+    return;
   }
+
+  const vec4 intex = texelFetch(uImage, pos, 0);
+
+  const int base_index =
+      pos.x + uBlock.in_extents.x * pos.y + (4 * uBlock.in_extents.w) * pos.z;
+  const ivec4 buf_indices =
+      base_index + ivec4(0, 1, 2, 3) * uBlock.in_extents.w;
+
+  uBuffer.data[buf_indices.x] = intex.x;
+  uBuffer.data[buf_indices.y] = intex.y;
+  uBuffer.data[buf_indices.z] = intex.z;
+  uBuffer.data[buf_indices.w] = intex.w;
 }

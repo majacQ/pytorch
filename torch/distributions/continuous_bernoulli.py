@@ -7,6 +7,7 @@ from torch.distributions.exp_family import ExponentialFamily
 from torch.distributions.utils import broadcast_all, probs_to_logits, logits_to_probs, lazy_property, clamp_probs
 from torch.nn.functional import binary_cross_entropy_with_logits
 
+__all__ = ['ContinuousBernoulli']
 
 class ContinuousBernoulli(ExponentialFamily):
     r"""
@@ -21,6 +22,7 @@ class ContinuousBernoulli(ExponentialFamily):
 
     Example::
 
+        >>> # xdoctest: +IGNORE_WANT("non-deterinistic")
         >>> m = ContinuousBernoulli(torch.tensor([0.3]))
         >>> m.sample()
         tensor([ 0.2538])
@@ -168,8 +170,6 @@ class ContinuousBernoulli(ExponentialFamily):
             torch.where(torch.ge(value, 1.0), torch.ones_like(value), unbounded_cdfs))
 
     def icdf(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         cut_probs = self._cut_probs()
         return torch.where(
             self._outside_unstable_region(),

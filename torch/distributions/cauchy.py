@@ -7,6 +7,7 @@ from torch.distributions import constraints
 from torch.distributions.distribution import Distribution
 from torch.distributions.utils import broadcast_all
 
+__all__ = ['Cauchy']
 
 class Cauchy(Distribution):
     r"""
@@ -16,6 +17,7 @@ class Cauchy(Distribution):
 
     Example::
 
+        >>> # xdoctest: +IGNORE_WANT("non-deterinistic")
         >>> m = Cauchy(torch.tensor([0.0]), torch.tensor([1.0]))
         >>> m.sample()  # sample from a Cauchy distribution with loc=0 and scale=1
         tensor([ 2.3214])
@@ -50,6 +52,10 @@ class Cauchy(Distribution):
         return torch.full(self._extended_shape(), nan, dtype=self.loc.dtype, device=self.loc.device)
 
     @property
+    def mode(self):
+        return self.loc
+
+    @property
     def variance(self):
         return torch.full(self._extended_shape(), inf, dtype=self.loc.dtype, device=self.loc.device)
 
@@ -69,8 +75,6 @@ class Cauchy(Distribution):
         return torch.atan((value - self.loc) / self.scale) / math.pi + 0.5
 
     def icdf(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         return torch.tan(math.pi * (value - 0.5)) * self.scale + self.loc
 
     def entropy(self):

@@ -15,10 +15,10 @@ Examples of possible Readers and Writers:
 
 See `dataset.py` for an example of implementation.
 """
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
+
+
+
+
 
 from caffe2.python import core
 from caffe2.python.schema import Field, Struct, from_blob_list
@@ -52,8 +52,8 @@ class Reader(object):
         """Setup nets to run at task initialization and cleanup time.
 
         Args:
-            global_init_net: A net invoked at task init time.
-            global_finish_net: A net invoked at task cleanup time.
+            init_net: A net invoked at task init time.
+            finish_net: A net invoked at task cleanup time.
         """
         pass
 

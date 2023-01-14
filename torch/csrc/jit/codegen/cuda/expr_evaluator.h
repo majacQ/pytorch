@@ -1,75 +1,68 @@
-
 #pragma once
 
-#include <torch/csrc/WindowsTorchApiMacro.h>
+#include <c10/macros/Export.h>
+#include <torch/csrc/jit/codegen/cuda/dynamic_type.h>
 #include <torch/csrc/jit/codegen/cuda/ir_interface_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/iter_visitor.h>
 
 #include <c10/util/Optional.h>
 
+#include <string>
 #include <unordered_map>
 
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 
-// Encapsulates a set of value bindings on top of a Fusion IR
-// (used to provide known values to ExpressionEvaluator)
-//
-// NOTE: currently it only supports Int values
-//
-class TORCH_CUDA_API EvaluationContext {
+class FusionPrecomputedValues;
+
+//! Calculate Fusion IR expressions
+class TORCH_CUDA_CU_API ExpressionEvaluator : private OptOutDispatch {
  public:
-  explicit EvaluationContext(Fusion* fusion) : fusion_(fusion) {}
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
+  explicit ExpressionEvaluator(Fusion* fusion) : fusion_(fusion) {}
 
-  // Set the concrete value for a Int*
-  void bind(const Val* value, Int::ScalarType concrete_value);
-
-  // Retrieves the concrete value, or nullopt if not set
-  c10::optional<Int::ScalarType> concreteValue(const Val* value) const;
-
+  //! Returns the associated fusion object
   Fusion* fusion() const {
     return fusion_;
   }
 
-  // Debugging helper, prints all the currently set values
+  //! Bind a concrete value to an IR variable
+  void bind(Val* value, const IntOrDouble& concrete_value);
+
+  //! Bind a concrete value to a named scalar
+  void bind(const std::string& name, const IntOrDouble& concrete_value);
+
+  //! Try to evaluate a Fusion IR value
+  c10::optional<IntOrDouble> evaluate(Val* value);
+
+  //! Debugging helper, prints all the currently known values
   void print() const;
 
+  void bindPrecomputedValues(FusionPrecomputedValues* precomputed_values) {
+    evaluator_precomputed_values_ = precomputed_values;
+  }
+
+  auto precomputedValues() {
+    return evaluator_precomputed_values_;
+  }
+
  private:
-  std::unordered_map<const Val*, Int::ScalarType> bindings_;
+  c10::optional<IntOrDouble> getValue(Val* value);
+
+  void handle(UnaryOp*) final;
+  void handle(BinaryOp*) final;
+  // TODO: handle swizzle
+
+ private:
+  std::unordered_map<const Val*, IntOrDouble> known_values_;
+  std::unordered_map<std::string, IntOrDouble> known_named_scalars_;
   Fusion* fusion_ = nullptr;
+  FusionPrecomputedValues* evaluator_precomputed_values_ = nullptr;
 };
 
-// Evaluates expressions in a Fusion IR, using the passed in
-// context (EvaluationContext) to query for concrete_values. The
-// evaluation context may override concrete values in the IR as well.
-class TORCH_CUDA_API ExpressionEvaluator : private IterVisitor {
- public:
-  // Returns the result of the specified expression, or nullopt if
-  // the result cannot be evaluated
-  static c10::optional<Int::ScalarType> evaluate(
-      Val* val,
-      const EvaluationContext* context);
-
- private:
-  explicit ExpressionEvaluator(const EvaluationContext* context)
-      : context_(context) {}
-
-  ~ExpressionEvaluator() override = default;
-
-  c10::optional<Int::ScalarType> value(const Statement* stmt) const;
-
-  using IterVisitor::handle;
-
-  void handle(Int*) override;
-  void handle(UnaryOp*) override;
-  void handle(BinaryOp*) override;
-
- private:
-  const EvaluationContext* context_ = nullptr;
-  std::unordered_map<const Statement*, Int::ScalarType> values_;
-};
-
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

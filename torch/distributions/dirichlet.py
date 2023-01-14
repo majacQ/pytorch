@@ -4,6 +4,7 @@ from torch.autograd.function import once_differentiable
 from torch.distributions import constraints
 from torch.distributions.exp_family import ExponentialFamily
 
+__all__ = ['Dirichlet']
 
 # This helper is exposed for testing.
 def _Dirichlet_backward(x, concentration, grad_output):
@@ -32,15 +33,16 @@ class Dirichlet(ExponentialFamily):
 
     Example::
 
+        >>> # xdoctest: +IGNORE_WANT("non-deterinistic")
         >>> m = Dirichlet(torch.tensor([0.5, 0.5]))
-        >>> m.sample()  # Dirichlet distributed with concentrarion concentration
+        >>> m.sample()  # Dirichlet distributed with concentration [0.5, 0.5]
         tensor([ 0.1046,  0.8954])
 
     Args:
         concentration (Tensor): concentration parameter of the distribution
             (often referred to as alpha)
     """
-    arg_constraints = {'concentration': constraints.positive}
+    arg_constraints = {'concentration': constraints.independent(constraints.positive, 1)}
     support = constraints.simplex
     has_rsample = True
 
@@ -74,6 +76,14 @@ class Dirichlet(ExponentialFamily):
     @property
     def mean(self):
         return self.concentration / self.concentration.sum(-1, True)
+
+    @property
+    def mode(self):
+        concentrationm1 = (self.concentration - 1).clamp(min=0.)
+        mode = concentrationm1 / concentrationm1.sum(-1, True)
+        mask = (self.concentration < 1).all(axis=-1)
+        mode[mask] = torch.nn.functional.one_hot(mode[mask].argmax(axis=-1), concentrationm1.shape[-1]).to(mode)
+        return mode
 
     @property
     def variance(self):
