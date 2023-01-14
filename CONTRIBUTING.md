@@ -119,7 +119,29 @@ git submodule sync --recursive
 git submodule update --init --recursive
 ```
 
+  <<<<<<< VitalyFedyunin-patch-1
+2.2. Install missing Python modules:
+
+```bash
+pip install -r requirements.txt
+```
+
+If you want to have no-op incremental rebuilds (which are fast), see the section below titled "Make no-op build fast."
+
+
+3. Install PyTorch in `develop` mode:
+
+
+The change you have to make is to replace
+
+```bash
+python setup.py install
+```
+
+with
+  =======
 If you want to have no-op incremental rebuilds (which are fast), see [Make no-op build fast](#make-no-op-build-fast) below.
+  >>>>>>> aliasanalysis
 
 3. Follow the instructions for [installing PyTorch from source](https://github.com/pytorch/pytorch#from-source), but instead of installing PyTorch via `python setup.py install`, use `python setup.py develop`.
 
